@@ -18,6 +18,7 @@ module.exports = {
   self: (player) => get('/self?' + q({ player })),
   block: (x, y, z) => get('/block?' + q({ x, y, z })),
   nearest: (player, block, r = 32) => get('/nearest?' + q({ player, block, r })),
+  inventory: (player) => get('/inventory?' + q({ player })),
   blocks: (x, y, z, r = 8, limit = 512) => get('/blocks?' + q({ x, y, z, r, limit })),
   events: (since = 0, max = 256) => get('/events?' + q({ since, max })),
 };

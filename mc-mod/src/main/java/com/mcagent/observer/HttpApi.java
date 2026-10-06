@@ -50,6 +50,7 @@ public final class HttpApi {
             http.createContext("/blocks", ex -> handle(ex, HttpApi::blocks));
             http.createContext("/block", ex -> handle(ex, HttpApi::block));
             http.createContext("/nearest", ex -> handle(ex, HttpApi::nearest));
+            http.createContext("/inventory", ex -> handle(ex, HttpApi::inventory));
             http.createContext("/events", ex -> handle(ex, HttpApi::events));
             http.setExecutor(pool);
             http.start();
@@ -232,6 +233,32 @@ public final class HttpApi {
         return "{\"ok\":true,\"found\":true,\"block\":\"" + esc(wanted)
                 + "\",\"pos\":[" + best.getX() + "," + best.getY() + "," + best.getZ()
                 + "],\"distance\":" + fmt(Math.sqrt(bestD)) + "}";
+    }
+
+    private static String inventory(Map<String, String> q) {
+        ServerPlayer p = player(q.get("player"));
+        if (p == null) {
+            return "{\"ok\":false,\"error\":\"player not found\"}";
+        }
+        var inv = p.getInventory();
+        StringBuilder out = new StringBuilder("{\"ok\":true,\"items\":[");
+        int n = 0;
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            net.minecraft.world.item.ItemStack st = inv.getItem(i);
+            if (st.isEmpty()) {
+                continue;
+            }
+            ResourceLocation rl = BuiltInRegistries.ITEM.getKey(st.getItem());
+            if (n > 0) {
+                out.append(',');
+            }
+            out.append("{\"slot\":").append(i).append(",\"item\":\"")
+                    .append(esc(rl == null ? "unknown" : rl.toString()))
+                    .append("\",\"count\":").append(st.getCount()).append('}');
+            n += 1;
+        }
+        out.append("],\"count\":").append(n).append('}');
+        return out.toString();
     }
 
     private static String events(Map<String, String> q) {

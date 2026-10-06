@@ -52,6 +52,7 @@ CHOP_BLOCK=minecraft:oak_log CHOP_COUNT=5 MC_USER=Bot tools/agent-up.sh
 | `GET /block?x&y&z` | 单方块(注册 id,如 `minecraft:mangrove_log`) |
 | `GET /blocks?x&y&z&r&limit` | 区域非空气方块(有界) |
 | `GET /nearest?player&block&r` | 最近的某类方块 |
+| `GET /inventory?player` | 玩家背包(服务端权威,用于断言合成/采集结果) |
 | `GET /events?since&max` | 方块变化事件(seq/tick/pos/before/after/actor) |
 
 Mod **只读**,不做任何世界写操作。
@@ -74,6 +75,20 @@ RESULT {"intent":"chop_tree","target":"minecraft:mangrove_log","want":3,
 
 关键:**判定用的是 Mod 的服务端权威状态**(方块已变 air)+ **事件归因**(actor=Bot),
 不是 bot 自己的乐观预测。找不到目标 → `fail`;方块挖掉但没捡到 → `ambiguous`(部分成功)。
+
+### 组合意图:砍树 → 合木板
+
+```sh
+node agent/src/scenarios/chop_then_planks.js
+```
+
+复用原子意图 `chopTree`,再加合成;判定同样用**服务端权威背包**:
+
+```json
+RESULT {"intent":"chop_then_planks","effect_status":"pass","control_status":"completed",
+ "evidence":{"server_logs_before":3,"server_logs_after":0,
+             "server_planks_after":28,"dug":3}}
+```
 
 ## 下一步(见 docs)
 
