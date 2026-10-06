@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "mcagent_observer",
+	"version": "${version}",
+	"name": "MineAgent Observer",
+	"description": "Read-only privileged observation endpoint (HTTP) for a Mineflayer-driven agent. No world writes.",
+	"authors": [
+		"mc-agent"
+	],
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.mcagent.observer.ObserverMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*"
+	}
+}
