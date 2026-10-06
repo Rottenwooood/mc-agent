@@ -46,6 +46,9 @@
 
 `sources/*-abstract.txt`(arXiv API 摘要)、`sources/apis/`(Mineflayer / Fabric / Voyager 等官方 API 与用法原文)。
 
+> 顶层设计文档(`../minecraft-framework.md`、`../minecraft-layering.md`、`../gemini.md`)
+> 已一并纳入本仓库,位于 `../`。
+
 ## 纪律
 
 所有引用以 `07` §8 台账为准。`canonical 未抓` 表示凭常识引用,正式写作前必须补原文。

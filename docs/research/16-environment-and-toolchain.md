@@ -10,35 +10,50 @@
 |---|---|
 | CPU / 内存 | 16 核 / 14 GiB(可用 ~7 GiB) |
 | 磁盘 | /home 175 GiB 可用 |
-| Java | OpenJDK **21.0.11** |
+| JDK 25 | `~/.local/share/jdk/25` —— **跑 Gradle/Loom 必需**(Loom 1.18.2 要求 JVM ≥25) |
+| JDK 17 | `~/.local/share/jdk/17` —— 备用 |
+| Java 激活 | `source /home/c6h4o2/dev/mc-world-mcp/env.sh`(把 `JAVA_HOME` 指向 25) |
 | Node / npm / pnpm | **24.13.0 / 11.9.0 / 10.30.2** |
-| Gradle | **未安装**(用 Fabric 的 **Gradle Wrapper**,无需系统级) |
+| Gradle | 经 **Gradle Wrapper**(示例项目钉在 **9.7.1**) |
+| 镜像 | Gradle 走腾讯云(`mirrors.cloud.tencent.com`);JDK 走华为云;**全程无 sudo** |
 | git | 2.43.0 |
 
 > 内存偏紧:建议**无头服务器 + prismarine-viewer 出帧**为主;真实有头客户端按需开,不要常驻多开。
 
 ---
 
-## 1. 版本矩阵(锁定策略;值待填,**尚无 hash**)
+## 1. 版本矩阵(锁定策略;**尚无 hash**)
 
-> 版本决策**尚未最终确定**(示例项目 `mc-world-mcp` 用的是 1.20.x,但本项目可另定);
-> 标 `TBD` 的必须在下一次提交前锁定为**具体版本号 + 锁文件 + 哈希**,否则**不得声称"已锁定"**。
+> 版本取自用户**已配好的示例项目 `mc-world-mcp`**(见 §1b),本项目可直接复用;
+> 标 `TBD`/`待补 hash` 的在下一次提交前补齐,否则**不得声称"已锁定"**。
 
-| 组件 | 目标值 | 锁定机制 | 状态 |
+| 组件 | 值 | 锁定机制 | 状态 |
 |---|---|---|---|
-| Minecraft | TBD(1.20.x 或 1.21.x) | `gradle.properties` | 待定 |
-| Fabric Loader | TBD | `gradle.properties` | 待锁定 |
-| Fabric API | TBD | `build.gradle` 依赖 | 待锁定 |
-| mappings | **Yarn**(version TBD)或 Mojang | `gradle.properties` | 待定 |
-| Java(mod) | TBD(1.20.x→17 / 1.21.x→21) | toolchain / `gradle.properties` | 待定 |
-| 构建 JDK | 本机 **21** | 文档 | 已定 |
-| Node | 24(或 LTS) | `.nvmrc` + `packageManager` | 待锁定 |
-| mineflayer / pathfinder / viewer | TBD(与 MC 版本对应) | `pnpm-lock.yaml` + commit | 待锁定 |
-| Gradle | 经 `gradlew`(校验 `distributionSha256Sum`) | wrapper | 待校验 |
+| Minecraft | **1.20.1** | `gradle.properties` | 已定(复用示例) |
+| Fabric Loader | **0.19.5** | `gradle.properties` | 已定 |
+| Fabric API | **0.92.12+1.20.1** | `gradle.properties` | 已定 |
+| Loom | **1.18.2** | `gradle.properties` | 已定 |
+| mappings | **Mojang 官方映射**(`loom.officialMojangMappings()`) | `build.gradle` | 已定 |
+| Java(mod) | 源码/目标 **17**(`sourceCompatibility/targetCompatibility = 17`) | `build.gradle` | 已定 |
+| Gradle | **9.7.1**(wrapper;`distributionUrl` = 腾讯镜像) | `gradle-wrapper.properties` + sha256 | **待补哈希校验** |
+| Node | 24 | `.nvmrc` + `packageManager` | 待锁定 |
+| mineflayer / pathfinder / viewer | TBD(与 1.20.1 对应) | `pnpm-lock.yaml` | 待锁定 |
 | 依赖完整性 | — | `gradle.lockfile` / `pnpm-lock.yaml` / wrapper sha256 | **未建立** |
 
-> **纪律**:只有"具体版本号 + 锁文件 + 哈希校验"三者齐备才算锁定;
-> 本文档此前称"全部锁定"是**不成立的**,已改。版本升级=单独任务,先记兼容性。
+> **纪律**:只有"具体版本号 + 锁文件 + 哈希校验"三者齐备才算锁定。
+> 版本升级=单独任务,先记兼容性。
+
+### 1b. 可复用的基础模板:`mc-world-mcp`(已配好环境)
+
+- 位置:`/home/c6h4o2/dev/mc-world-mcp/`(**示例项目**,只读观测 + JS/TS MCP 代理;**不是本项目**)。
+- 用途:开发时**可整体搬过来**作为 Fabric Mod 骨架与工具链。
+- 结构:
+  - `技术方案.md`、`env.sh`
+  - `mod/`(Fabric 官方模板):`build.gradle`/`settings.gradle`/`gradle.properties`/`gradlew`/
+    `gradle/wrapper/…`/`src/main/java`/`src/client/java`/`src/main/resources/fabric.mod.json`
+  - `bridge/`(Node/TS):`package.json`/`tsconfig.json`/`.env.example`/`src/*.ts`
+- 环境:`source env.sh` 激活 JDK 25;Gradle Wrapper 9.7.1(腾讯镜像);Mojang 官方映射;target Java 17。
+- **生成物勿提交**:`mod/build/`、`mod/.gradle/`、`mod/run/`、`bridge/dist/`、`bridge/node_modules/`。
 
 ---
 
@@ -118,7 +133,7 @@
 ---
 
 ## 8. 待你拍板
-1. **MC 版本**:1.20.x 还是 1.21.x?(1.20→Java 17,1.21→Java 21)mappings 用 **Yarn** 还是 Mojang?
-2. 构建 JDK:本机 21(选 1.21.x 正好;选 1.20.x 则 21 构建 + target 17)。
+1. 是否直接采用 `mc-world-mcp` 的版本组合(**MC 1.20.1 / Loader 0.19.5 / Fabric API 0.92.12+1.20.1 / Loom 1.18.2 / Gradle 9.7.1 / Mojang 映射 / target 17**)?若是,`§1` 即为定案(仅缺锁文件与哈希)。
+2. 是否连 `mod/` + `bridge/` 的同构一起搬过来(MC mod + JS/TS 代理)?
 3. 视觉首版就接 prismarine-viewer headless,还是先留接口?
 4. 项目根目录 = `/home/c6h4o2/dev/mc-agent`(已建)。
