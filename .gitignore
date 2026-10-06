@@ -1,0 +1,16 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+# Gradle / Fabric
+.gradle/
+build/
+out/
+# Minecraft run directory
+run/
+logs/
+*.log
+# OS
+.DS_Store
