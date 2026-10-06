@@ -106,7 +106,8 @@ L5 Meta / Eval
   1. 它未提 **GCPC/SkillGen/SkillAdaptor/CoEvoSkills** 这四篇 2026 直接近邻——它们把
      "拒判/部分分/归因/局部修复"做在软件域,**进一步压缩叙事**,必须纳入。
   2. 它未涉及**因果归因**与**能力分级**(规划/验证/动作三权限)——这是我提出的可主张 delta。
-  3. 它提到的第三方 MC 工程 MineAgent 经用户判断来源不可信,**已排除、不纳入**。
+  3. 它提到的第三方 MC 工程 MineAgent:不采用其架构、不为其 README 主张背书,
+     但**保留一条登记**(源码可确认 / 未验证 / 缺陷,见文末附录),避免"研究空白被高估"。
 - **结论**:它的研究问题(Q)与我一致;我的增量是"三值细分/因果归因 + 能力分级"
   与更完整的近邻地图。
 
@@ -121,8 +122,29 @@ L5 Meta / Eval
 
 ## 8. 本次调研台账汇总
 
-- 01 Voyager 谱系:13 条全部 verified-real(纠正 2 处)。
+- 01 Voyager 谱系:对比表 12 篇 + Crafter 基准,均 verified-real(纠正 2 处)。
 - 02 技能验证/契约:8 条 verified-real;自愈测试工具 unverifiable。
 - 04 RV/安全:shielding/CBF/step-verify verified-real;options/三值RV/RewardMachines canonical 未抓。
-- 05 RSI:DGM/STOP/Self-Rewarding/step-verify/reward-hack verified-real;Gödel Machine canonical 未抓。
+- 05 RSI:DGM/STOP/Self-Rewarding/step-verify/reward-hack verified-real;Gödel Agent(2410.04444)已补;Gödel Machine canonical 未抓。
 - 06 基准:MineDojo/MineRL/Odyssey/MineAnyBuild/Crafter verified-real;ALFWorld 等 canonical 未抓。
+
+---
+
+## 附录 · 近邻登记:第三方 MC 工程 MineAgent
+
+> 处置原则:**不采用其架构、不为其 README 主张背书**;但作为"已有人做过"的登记予以保留,
+> 以免高估研究空白。下表区分"源码可确认 / 未验证 / 缺陷"。**结论不作为可靠来源使用。**
+
+| 维度 | 源码可确认 | 未验证 | 缺陷/局限 |
+|---|---|---|---|
+| 名称/形态 | 服务端 fake-player 的 Minecraft 1.21.1 mod(LGPL-3.0) | 声明的可靠性无第三方复现 | 极低可见度、单人作品 |
+| 动作契约 | 有任务级契约(goal/成功判据/地形策略/预算)与步骤级前置/效果声明 | 是否覆盖全部动作未验证 | — |
+| 证据/结算 | 服务端权威读回 + 事务台账(状态分级) | 准确率/误报无量化 | 无独立验收 |
+| 三态 | 有多状态(含"未验证") | 是否显式区分 ambiguous/unobservable 未验证 | 判定规则未公开量化 |
+| 技能库 | 有防污染校验、失败不覆盖上次已验证轨迹 | 入库标准未量化 | — |
+| 反射/抢占 | 有硬编码生存反射 | 覆盖度未验证 | 反射硬编码、非可声明不变量 |
+| 归因 | 有 correlation/主体验证 | 因果归因是否严格未验证 | 时间窗+主体的因果性未证明 |
+| 评测 | 有测试 | 无公开的误报/拒判/污染指标 | 缺少论文级评测 |
+
+**对研究的含义**:该工程提示"服务端权威证据 + 技能防污染 + 生存反射"这条路已有人走;
+我们的差异仍落在 `07 §2` 的"实时/部分可观测/不可逆下的具体实例化 + 严格因果归因 + 独立评测"。

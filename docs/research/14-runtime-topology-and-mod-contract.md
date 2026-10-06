@@ -54,12 +54,14 @@
 - Mod 在事件里带 `tick` 与**动作主体**(player UUID / 实体)。
 - **关联 ≠ 因果**:`event.tick ∈ [start_tick,end_tick]` 且 `scope ∩ causal_scope ≠ ∅` 只能建立
   **时间相关**;随机刻、红石、爆炸、其他玩家、延迟事件都可能落入窗口。
-- **证据等级**:`temporal_association` 默认**不足以判 self**;提升为因果需:
-  (a) 服务端**动作确认/事务关联**(Mod 在动作生效回调里携带 `action_id`/`actor`,或状态转移与动作同事务);或
-  (b) **排除性证据**(窗口内无其他 actor / 环境事件)。
-  未提升时**不得**记 `self`。
+- **证据等级**:`temporal_association` 默认**不足以判 self**;**唯一**提升为因果的途径是
+  服务端**动作确认/事务关联**(Mod 在动作生效回调里携带 `action_id`/`actor`,或状态转移与动作同一事务)。
+- **不接受"排除其他 actor"作为提升依据**:即使窗口内没有其他玩家/实体事件,也排除不了
+  **随机刻、红石、流体、重力、区块边界**等**非 actor** 原因 → 排除法**不能**产出 `self_confirmed`。
+- **首版约定**:主程序不发 `action_id` 给 Mod(保持 Mod 只读),因此归因**只能到 `self_temporal`**,
+  不得记 `self_confirmed`。
 - 归因取值:`self_confirmed | self_temporal | foreign | unattributed`。
-- 主程序默认不发包给 Mod 报 `action_id`(保持 Mod 只读);若启用 (a),需 Mod 侧建立"动作→事件"关联通道。
+- 若将来启用服务端动作确认,才允许 `self_confirmed`,且需 Mod 侧建立"动作→事件"关联通道。
 
 ---
 

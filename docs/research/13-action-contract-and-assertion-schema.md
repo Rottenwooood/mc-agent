@@ -125,7 +125,7 @@ ActionResult {
   "reason": "precondition_failed|effect_not_observed|insufficient_evidence|attribution_uncertain|timeout|policy_blocked",
   "effects": [ { "subject":"block@10,63,10", "predicate":"is", "before":"oak_log", "after":"air" } ],
   "evidence": [ { "claim":"block_removed", "source":"authoritative", "at_tick":12345 } ],
-  "attribution": "self|foreign|unattributed",
+  "attribution": "self_confirmed|self_temporal|foreign|unattributed|unknown",
   "diff": { "changed":true, "added":2, "removed":1, "samples_added":[...], "samples_removed":[...] },  // ambiguous 时
   "resources": { "inventory_delta": {"minecraft:oak_log":+1}, "hp_delta":0, "hunger_delta":0, "xp_delta":0 },
   "timing": { "started_tick":12340, "ended_tick":12410, "elapsed_ms":3500 },
@@ -152,15 +152,26 @@ ActionResult {
 - `transfer_item` → 相关菜单槽位。
 签名 = 对邻域内的**结构化事实**做规范化后取 hash + 可读行列表(便于 diff)。
 
-### 4.2 判定流程(动作后)
+### 4.2 两个独立命题:目标是否满足 vs 是否本动作造成
+
+**必须分开判定**,不能"后置条件成立就给 pass":
+
+- **命题 A(效果/证据)**:`effect_status` = 目标状态**是否已满足**(在服务端真值上)。
+- **命题 B(归因)**:`attribution` = 该状态**是否由本动作造成**(见 §4.3)。
+
+流程(动作后):
 ```
-1. 求 postconditions(query_state,not_before_tick=start)：
-   全 pass → effect_status=pass
-2. 否则取邻域 before/after 签名 diff：
-   - 邻域不可观测/过期 → effect_status=unobservable
-   - diff.meaningful → effect_status=ambiguous(+diff)
-   - 否则 → effect_status=fail(reason=effect_not_observed)
-3. control_status 由执行器填(completed/blocked/interrupted/needs_replan/cancelled/uncertain)。
+1. 求 postconditions(query_state, not_before_tick=start):
+   全 pass → effect_status = pass;否则按邻域 diff 定:
+     - 邻域不可观测/过期 → unobservable
+     - diff.meaningful      → ambiguous(+diff)
+     - 否则                 → fail(reason=effect_not_observed)
+2. 独立判定 attribution(§4.3):
+   - 首版(无服务端动作确认)→ 至多 self_temporal,**不得** self_confirmed
+3. 若谓词显式声明 attribution:"self":
+   - 而 attribution 未达 self_confirmed → **该断言不算最终通过**:
+     保持 effect 状态,但标 `attribution_uncertain`,交策略(拒判/交还),不得报 pass。
+4. control_status 由执行器填(completed/blocked/interrupted/needs_replan/cancelled/uncertain)。
 ```
 `meaningful` 阈值:局部范围(小、纯)任意 1 处增删即有意义;大范围需严格阈值(对齐 agent-gavel `diff_summary` 的局部/整页两档)。
 
