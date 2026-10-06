@@ -10,7 +10,7 @@
 |---|---|
 | CPU / 内存 | 16 核 / 14 GiB(可用 ~7 GiB) |
 | 磁盘 | /home 175 GiB 可用 |
-| Java | OpenJDK **21.0.11**(可编译 target 17;注意 `技术方案.md` 提到构建用 Java 25,本机无 25) |
+| Java | OpenJDK **21.0.11** |
 | Node / npm / pnpm | **24.13.0 / 11.9.0 / 10.30.2** |
 | Gradle | **未安装**(用 Fabric 的 **Gradle Wrapper**,无需系统级) |
 | git | 2.43.0 |
@@ -21,17 +21,17 @@
 
 ## 1. 版本矩阵(锁定策略;值待填,**尚无 hash**)
 
-> 本项目的**权威版本决策**在 `../技术方案.md`(已定 **Fabric 1.20.x、只读**),本表须与之一致;
+> 版本决策**尚未最终确定**(示例项目 `mc-world-mcp` 用的是 1.20.x,但本项目可另定);
 > 标 `TBD` 的必须在下一次提交前锁定为**具体版本号 + 锁文件 + 哈希**,否则**不得声称"已锁定"**。
 
 | 组件 | 目标值 | 锁定机制 | 状态 |
 |---|---|---|---|
-| Minecraft | **1.20.x**(具体补丁见 `技术方案.md`) | `gradle.properties` | 待填具体补丁号 |
+| Minecraft | TBD(1.20.x 或 1.21.x) | `gradle.properties` | 待定 |
 | Fabric Loader | TBD | `gradle.properties` | 待锁定 |
 | Fabric API | TBD | `build.gradle` 依赖 | 待锁定 |
 | mappings | **Yarn**(version TBD)或 Mojang | `gradle.properties` | 待定 |
-| Java(mod) | **17**(按 `技术方案.md`) | toolchain / `gradle.properties` | 已定 |
-| 构建 JDK | 本机 **21**(无 25,用 21 构建、target 17) | 文档 | 与现有方案待对齐 |
+| Java(mod) | TBD(1.20.x→17 / 1.21.x→21) | toolchain / `gradle.properties` | 待定 |
+| 构建 JDK | 本机 **21** | 文档 | 已定 |
 | Node | 24(或 LTS) | `.nvmrc` + `packageManager` | 待锁定 |
 | mineflayer / pathfinder / viewer | TBD(与 MC 版本对应) | `pnpm-lock.yaml` + commit | 待锁定 |
 | Gradle | 经 `gradlew`(校验 `distributionSha256Sum`) | wrapper | 待校验 |
@@ -118,7 +118,7 @@
 ---
 
 ## 8. 待你拍板
-1. **版本以 `技术方案.md` 的 1.20.x 为准**(本设计文档此前假设 1.21.1,已改说明)。mappings 用 **Yarn** 还是 Mojang?
-2. **构建 JDK**:`技术方案.md` 用 Java 25,本机只有 21 —— 是装 25,还是改用 21 构建 + target 17?
+1. **MC 版本**:1.20.x 还是 1.21.x?(1.20→Java 17,1.21→Java 21)mappings 用 **Yarn** 还是 Mojang?
+2. 构建 JDK:本机 21(选 1.21.x 正好;选 1.20.x 则 21 构建 + target 17)。
 3. 视觉首版就接 prismarine-viewer headless,还是先留接口?
-4. 项目根目录 = `/home/c6h4o2/dev/mc-world-mcp`(已确认)?
+4. 项目根目录 = `/home/c6h4o2/dev/mc-agent`(已建)。
