@@ -21,6 +21,7 @@ const runMethodTool: ToolDef = {
       postconditions: { type: 'array', items: { type: 'object' }, description: 'Predicate[] terminal postcondition' },
       args: { type: 'object', description: 'Initial variable bindings' },
       budget: { type: 'integer', default: 4096 },
+      budgetMs: { type: 'integer', default: 90000, description: 'Wall-clock ceiling; the run returns a verdict when exceeded' },
     },
     required: ['steps'],
     additionalProperties: false,
@@ -37,6 +38,7 @@ const runMethodTool: ToolDef = {
       {
         ...(args.args ? { args: args.args as Record<string, unknown> } : {}),
         ...(args.budget ? { budget: Number(args.budget) } : {}),
+        ...(args.budgetMs ? { budgetMs: Number(args.budgetMs) } : {}),
       },
     ),
 };

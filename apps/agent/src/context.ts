@@ -12,7 +12,7 @@ export interface AppContext {
   world: World;
   ctrl: MineflayerControlPort;
   token: ControlToken;
-  reflex: ReflexShield;
+  reflex?: ReflexShield;
   registry: ToolRegistry;
   toolCtx: ToolContext;
 }
@@ -28,9 +28,9 @@ export async function createContext(opts: CreateOptions = {}): Promise<AppContex
 
   const world = new World(new TelemetryWorldPort(undefined, username));
   const token = new ControlToken();
-  const reflex = new ReflexShield(world);
+  const reflex = process.env.MCAGENT_REFLEX === '0' ? undefined : new ReflexShield(world);
   const registry = new ToolRegistry();
-  const toolCtx: ToolContext = { world, ctrl, token, reflex };
+  const toolCtx: ToolContext = { world, ctrl, token, ...(reflex ? { reflex } : {}) };
   for (const t of buildTools()) registry.register(t);
 
   return { username, world, ctrl, token, reflex, registry, toolCtx };

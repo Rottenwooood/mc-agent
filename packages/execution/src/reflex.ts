@@ -21,7 +21,7 @@ export const DEFAULT_REFLEX: ReflexConfig = {
   hostileRadius: 6,
   projectileRadius: 8,
   criticalHealth: 6,
-  pollMs: 200,
+  pollMs: 500,
 };
 
 export interface Threat {
@@ -87,7 +87,10 @@ export class ReflexShield {
 
   /** Poll while an action runs; call `onViolation` on any broken safety invariant. */
   monitor(opts: { defensive: boolean }, onViolation: (reason: string, threat: Threat) => void): { stop(): void } {
+    let busy = false;
     const timer = setInterval(() => {
+      if (busy) return; // never overlap world polls; they compete with the action's own reads
+      busy = true;
       void (async () => {
         try {
           const threat = await this.assess();
@@ -100,6 +103,8 @@ export class ReflexShield {
           if (violation) onViolation(violation, threat);
         } catch {
           /* monitoring must never throw */
+        } finally {
+          busy = false;
         }
       })();
     }, this.cfg.pollMs);

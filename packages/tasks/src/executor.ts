@@ -22,6 +22,7 @@ export interface RunEnv {
   actions: Map<string, AtomicAction>;
   results: ActionResult[];
   budget: number;
+  deadline: number;
 }
 
 /** A composable declared by the agent: bounded steps + optional terminal postconditions. */
@@ -34,7 +35,7 @@ export interface Composable {
 const isActionStep = (s: Step): s is ActionStep => 'action' in s;
 
 export async function runStep(step: Step, env: RunEnv): Promise<void> {
-  if (env.budget-- <= 0) return;
+  if (env.budget-- <= 0 || Date.now() > env.deadline) return;
   if (isActionStep(step)) return runAction(step, env);
   return runControl(step as ControlStep, env);
 }
@@ -101,6 +102,8 @@ async function runAction(step: ActionStep, env: RunEnv): Promise<void> {
 export interface RunMethodOptions {
   budget?: number;
   args?: Record<string, unknown>;
+  /** Wall-clock ceiling so a composed run always returns (must stay under the MCP call cap). */
+  budgetMs?: number;
 }
 
 /** Execute a declared method over the atomic action library; judge the whole run by its postconditions. */
@@ -110,19 +113,29 @@ export async function runMethod(
   method: Composable,
   opts: RunMethodOptions = {},
 ): Promise<ActionResult> {
-  const env: RunEnv = { ctx, vars: { ...(opts.args ?? {}) }, actions, results: [], budget: opts.budget ?? 4096 };
+  const start = Date.now();
+  const budgetMs = opts.budgetMs ?? 90000;
+  const env: RunEnv = {
+    ctx,
+    vars: { ...(opts.args ?? {}) },
+    actions,
+    results: [],
+    budget: opts.budget ?? 4096,
+    deadline: start + budgetMs,
+  };
   for (const step of method.steps) {
     await runStep(step, env);
-    if (env.budget <= 0) break;
+    if (env.budget <= 0 || Date.now() > env.deadline) break;
   }
-  const tri: Tri = await terminal(ctx, method.postconditions ?? [], env);
+  const timedOut = Date.now() > env.deadline;
+  const tri: Tri = timedOut ? undefined : await terminal(ctx, method.postconditions ?? [], env);
   return mk({
     effectStatus: triToEffect(tri),
-    controlStatus: 'completed',
-    reason: tri === true ? null : tri === false ? 'effect_not_observed' : 'insufficient_evidence',
+    controlStatus: timedOut ? 'interrupted' : 'completed',
+    reason: timedOut ? 'timeout' : tri === true ? null : tri === false ? 'effect_not_observed' : 'insufficient_evidence',
     subResults: env.results,
     attribution: 'self_temporal',
-    data: { steps: env.results.length, budgetLeft: env.budget },
+    data: { steps: env.results.length, budgetLeft: env.budget, elapsedMs: Date.now() - start, timedOut },
   });
 }
 

@@ -16,7 +16,7 @@ const V = (p: Vec3): any => new (vec3 as any)(p[0], p[1], p[2]);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Bound a single client operation so a stuck action cannot hold the body. */
-const OP_TIMEOUT_MS = 15000;
+const OP_TIMEOUT_MS = 8000;
 const race = <T>(p: Promise<T>, label: string, ms = OP_TIMEOUT_MS): Promise<T> =>
   Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(label + ' timeout'))) as Promise<T>]);
 
@@ -105,7 +105,7 @@ export class MineflayerControlPort implements ControlPort {
     const bot = this.b();
     this.setMovements(bot, opts.allowModify === true);
     const range = opts.range ?? 1;
-    const timeoutMs = opts.timeoutMs ?? 30000;
+    const timeoutMs = opts.timeoutMs ?? 12000;
     try {
       await Promise.race([
         bot.pathfinder.goto(new goals.GoalNear(pos[0], pos[1], pos[2], range)),
@@ -300,9 +300,22 @@ export class MineflayerControlPort implements ControlPort {
   async equip(item: string, destination = 'hand'): Promise<ControlReceipt> {
     const id = this.itemId(item);
     if (id == null) return no('unknown item ' + item);
+    const bot = this.b();
+    const name = short(item);
+    // Already holding it: mineflayer's equip never resolves in this case.
+    if (destination === 'hand' && bot.heldItem && (bot.heldItem.name === name || bot.heldItem.type === id)) {
+      return ok('observed', 'already equipped ' + name);
+    }
+    // Item sitting in the quick bar: just change the selection (synchronous, avoids window clicks).
+    const QUICK_BAR_START = 36;
+    const found = bot.inventory?.findInventoryItem?.(id as number);
+    if (destination === 'hand' && found && found.slot >= QUICK_BAR_START && found.slot < QUICK_BAR_START + 9) {
+      bot.setQuickBarSlot(found.slot - QUICK_BAR_START);
+      return ok('observed', 'equipped ' + name);
+    }
     try {
-      await race(this.b().equip(id, destination), 'equip');
-      return ok('observed', 'equipped ' + short(item));
+      await race(bot.equip(id, destination), 'equip');
+      return ok('observed', 'equipped ' + name);
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
     }
