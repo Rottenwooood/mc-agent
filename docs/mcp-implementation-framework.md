@@ -88,8 +88,23 @@ MC 1.20.1 · Loader 0.19.5 · Fabric API 0.92.12+1.20.1 · Loom 1.18.2 · Gradle
 ## 13. 可视化
 `prismarine-viewer` 浏览器(调试)+ headless 出帧(素材/多模态);可叠调试层(路径/目标/对象/断言/安全);默认不进控制回路。
 
-## 14. 迁移与 git
-原型在分支 `proto/mcp-runtime`,重建时删除 master 残余,复用逻辑迁入对应层后重写;`mc-mod→mods/server-observer`;`agent→apps/agent`(TS)。提交粒度:框架→contracts→adapters+foundation→world→execution→tasks/knowledge→interfaces/mcp+apps→tests。每次可编译。
+## 14. 实现计划:里程碑与验证门(M0–M6)
+
+**完成定义(铁律)**:编译通过 / 单测通过 / 非 LLM 工具 smoke **都不算完成**。只有该里程碑的 **gate 通过**才算:真实 LLM **经 MCP**、在**真实 MC** 上**自主完成任务**、由**独立验收器**判定通过、全程记录轨迹、**无写死脚本**。每个里程碑标注哪些层是"薄"的 —— **薄 ≠ 完成**。
+
+| 里程碑 | 加厚的层 | Gate(真实验证) |
+|---|---|---|
+| **M0** | workspace + `contracts` + 纯函数单测 | 无(纯基础设施,**不称项目完成**) |
+| **M1** | Mod 契约(health/snapshot/events)、telemetry、mineflayer 控制、world(事实+引用+最小关系+基础表面壳)、execution(令牌+`replace`+单点后置三态+最小 L1)、interfaces/mcp(最小面)、apps(常驻+薄桥) | **G1**:agent 经 MCP 在真实 MC 完成"砍 1 根原木入手",独立验收通过 |
+| **M2** | world(通用查询/多层表面图/两层地图)、execution(完整 L1 + L2 少量原语 + L3 因果 diff/整体后置)、tasks(有界词表) | **G2**:agent 完成"挖矿脉 + 建小结构",扰动下出现三态与局部修复,独立验收通过 |
+| **M3** | knowledge(方法库/版本/统计 + net-effect + 入库门禁 + 回退) | **G3**:agent 自己造高层动作 → 训练/验证验证 → 入库 → 留出种子重放通过 → 坏则回退 |
+| **M4** | interfaces/mcp 全量(动态/`list_changed`)、apps 全量、可视化 | **G4**:多会话共享一个身体、客户端感知 `list_changed`、可视化可见 |
+| **M5** | tests/eval(agent 驱动 runner + 独立验收器 + 指标 + 消融)、scenarios(T1–T4 + 种子隔离 + fixtures + reset-world) | **GF**:完整 benchmark(test 种子)报告全部指标 + 消融;**机制有效性的唯一最终判定** |
+| **M6** | `explore` 持续动作、视觉、课程 | 各自单独 gate(按需) |
+
+**顺序**:M0→M1→M2→M3→M4→M5,必须前一步 gate 通过才进下一步。**测试用 subagent 执行**。
+
+**工程**:pnpm workspace + `tsc -b` + vitest;每步可编译、可测。**迁移**:`mc-mod → mods/server-observer`,`agent → apps/agent`(TS),原型留 `proto/mcp-runtime` 分支。
 
 ## 15. 累计已定决策
 1. 不做主动区**体积**缓存;改为**接触空气的表面壳**,并入多层表面图。
