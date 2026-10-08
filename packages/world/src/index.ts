@@ -84,8 +84,9 @@ export class World {
       min: [center[0] - radius, center[1] - radius, center[2] - radius] as Vec3,
       max: [center[0] + radius, center[1] + radius, center[2] + radius] as Vec3,
     };
-    const r = await this.port.query(box);
+    const r = await this.port.query(box, { blockIds: [block] });
     if (isUnknown(r)) return r;
+    if (r.coverage.truncated) return unknown('region truncated; nearest not reliable');
     const cells: BlockCell[] = r.value.filter((c) => c.block === block);
     const best = nearestCell(cells, center);
     return { value: best, source: 'authoritative', observedTick: r.observedTick, coverage: r.coverage };

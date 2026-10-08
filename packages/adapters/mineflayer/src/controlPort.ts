@@ -15,6 +15,11 @@ const { pathfinder, Movements, goals } = pathfinderPkg as any;
 const V = (p: Vec3): any => new (vec3 as any)(p[0], p[1], p[2]);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Bound a single client operation so a stuck action cannot hold the body. */
+const OP_TIMEOUT_MS = 15000;
+const race = <T>(p: Promise<T>, label: string, ms = OP_TIMEOUT_MS): Promise<T> =>
+  Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(label + ' timeout'))) as Promise<T>]);
+
 export interface MineflayerOptions {
   host?: string;
   port?: number;
@@ -148,7 +153,7 @@ export class MineflayerControlPort implements ControlPort {
 
   async lookAt(pos: Vec3): Promise<ControlReceipt> {
     try {
-      await this.b().lookAt(V(pos), true);
+      await race(this.b().lookAt(V(pos), true), 'look_at');
       return ok('observed', 'looked');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -190,7 +195,7 @@ export class MineflayerControlPort implements ControlPort {
     const block = bot.blockAt(V(pos));
     if (!block) return no('no block at position');
     try {
-      await bot.dig(block);
+      await race(bot.dig(block), 'dig');
       return ok('observed', 'dig completed');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -206,7 +211,7 @@ export class MineflayerControlPort implements ControlPort {
     const ref = bot.blockAt(V([pos[0] - face[0], pos[1] - face[1], pos[2] - face[2]]));
     if (!ref) return no('no reference block for face');
     try {
-      await bot.placeBlock(ref, V(face));
+      await race(bot.placeBlock(ref, V(face)), 'place');
       return ok('observed', 'placed');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -218,7 +223,7 @@ export class MineflayerControlPort implements ControlPort {
     const block = bot.blockAt(V(pos));
     if (!block) return no('no block at position');
     try {
-      await bot.activateBlock(block);
+      await race(bot.activateBlock(block), 'use');
       return ok('observed', 'activated');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -253,9 +258,9 @@ export class MineflayerControlPort implements ControlPort {
       if (item) {
         const eq = await this.equip(item, 'hand');
         if (!eq.accepted) return eq;
-        await bot.useOn(e);
+        await race(bot.useOn(e), 'use_on');
       } else {
-        await bot.activateEntity(e);
+        await race(bot.activateEntity(e), 'interact_entity');
       }
       return ok('observed', 'interacted');
     } catch (err) {
@@ -271,11 +276,11 @@ export class MineflayerControlPort implements ControlPort {
       if (target.entityId) {
         const e = bot.entities[Number(target.entityId)];
         if (!e) return no('entity not found');
-        await bot.useOn(e);
+        await race(bot.useOn(e), 'use_item_on_entity');
       } else if (target.pos) {
         const block = bot.blockAt(V(target.pos));
         if (!block) return no('no block at position');
-        await bot.activateBlock(block);
+        await race(bot.activateBlock(block), 'use_item_on_block');
       } else {
         return no('missing target');
       }
@@ -291,7 +296,7 @@ export class MineflayerControlPort implements ControlPort {
     const id = this.itemId(item);
     if (id == null) return no('unknown item ' + item);
     try {
-      await this.b().equip(id, destination);
+      await race(this.b().equip(id, destination), 'equip');
       return ok('observed', 'equipped ' + short(item));
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -300,7 +305,7 @@ export class MineflayerControlPort implements ControlPort {
 
   async unequip(destination = 'hand'): Promise<ControlReceipt> {
     try {
-      await this.b().unequip(destination);
+      await race(this.b().unequip(destination), 'unequip');
       return ok('observed', 'unequipped');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -311,7 +316,7 @@ export class MineflayerControlPort implements ControlPort {
     const id = this.itemId(item);
     if (id == null) return no('unknown item ' + item);
     try {
-      await this.b().toss(id, null, Math.max(1, count));
+      await race(this.b().toss(id, null, Math.max(1, count)), 'drop');
       return ok('observed', 'dropped');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -326,8 +331,8 @@ export class MineflayerControlPort implements ControlPort {
     let win: any;
     try {
       win = await bot.openContainer(bot.blockAt(V(opts.pos)));
-      if (opts.from === 'inventory' && opts.to === 'container') await win.deposit(id, null, count);
-      else if (opts.from === 'container' && opts.to === 'inventory') await win.withdraw(id, null, count);
+      if (opts.from === 'inventory' && opts.to === 'container') await race(win.deposit(id, null, count), 'transfer_deposit');
+      else if (opts.from === 'container' && opts.to === 'inventory') await race(win.withdraw(id, null, count), 'transfer_withdraw');
       else return no('invalid direction');
       return ok('observed', 'transferred');
     } catch (e) {
@@ -341,7 +346,7 @@ export class MineflayerControlPort implements ControlPort {
     const eq = await this.equip(item, 'hand');
     if (!eq.accepted) return eq;
     try {
-      await this.b().consume();
+      await race(this.b().consume(), 'consume');
       return ok('observed', 'consumed');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -369,7 +374,7 @@ export class MineflayerControlPort implements ControlPort {
     const block = bot.blockAt(V(pos));
     if (!block) return no('no block at position');
     try {
-      await bot.openContainer(block);
+      await race(bot.openContainer(block), 'open_container');
       return ok('observed', 'opened');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -380,7 +385,7 @@ export class MineflayerControlPort implements ControlPort {
     const bot = this.b();
     if (!bot.currentWindow) return ok('observed', 'no window');
     try {
-      await bot.closeWindow(bot.currentWindow);
+      await race(bot.closeWindow(bot.currentWindow), 'close_container');
       return ok('observed', 'closed');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -395,7 +400,7 @@ export class MineflayerControlPort implements ControlPort {
     try {
       const recipes = bot.recipesFor(id, null, count, table);
       if (!recipes.length) return no('no recipe / missing ingredients');
-      await bot.craft(recipes[0], count, table);
+      await race(bot.craft(recipes[0], count, table), 'craft', 30000);
       return ok('observed', 'crafted');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -438,10 +443,10 @@ export class MineflayerControlPort implements ControlPort {
     let win: any;
     try {
       win = await bot.openEnchantmentTable(block);
-      await win.putTargetItem(id);
-      await win.enchant(choice);
+      await race(win.putTargetItem(id), 'enchant_put');
+      await race(win.enchant(choice), 'enchant');
       await sleep(500);
-      await win.takeTargetItem();
+      await race(win.takeTargetItem(), 'enchant_take');
       return ok('observed', 'enchanted');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -460,7 +465,7 @@ export class MineflayerControlPort implements ControlPort {
     let win: any;
     try {
       win = await bot.openAnvil(block);
-      await win.combine(a, b, name);
+      await race(win.combine(a, b, name), 'anvil');
       return ok('observed', 'combined');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
@@ -475,7 +480,7 @@ export class MineflayerControlPort implements ControlPort {
     if (!e) return no('entity not found');
     try {
       const villager = await bot.openVillager(e);
-      await bot.trade(villager, index, times);
+      await race(bot.trade(villager, index, times), 'trade', 30000);
       return ok('observed', 'traded');
     } catch (err) {
       return no(String((err as Error)?.message ?? err));

@@ -131,7 +131,7 @@ class ResidentClient {
       const t = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error('resident timeout: ' + op));
-      }, 300000);
+      }, 120000);
       this.pending.set(id, {
         resolve: (m) => {
           clearTimeout(t);

@@ -20,6 +20,7 @@ const goTo: AtomicAction = {
     verificationMode: 'task_terminal',
     effectClass: 'idempotent',
     retryPolicy: 'safe_once',
+    timeoutTicks: 800,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const target = args.target as Target;

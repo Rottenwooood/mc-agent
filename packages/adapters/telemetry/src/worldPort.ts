@@ -88,11 +88,12 @@ export class TelemetryWorldPort implements WorldPort {
     return { value, source: 'authoritative', observedTick: r.server_tick, coverage: toCoverage(r.coverage) };
   }
 
-  async query(box: Box): Promise<MaybeFact<BlockCell[]>> {
+  async query(box: Box, opts?: { blockIds?: string[]; maxItems?: number }): Promise<MaybeFact<BlockCell[]>> {
     const r = await this.snapshot({
       scope: { kind: 'box', min: box.min, max: box.max },
       want: ['blocks'],
-      max_items: 8192,
+      max_items: opts?.maxItems ?? 8192,
+      ...(opts?.blockIds && opts.blockIds.length > 0 ? { filters: { block_ids: opts.blockIds } } : {}),
       ...(this.player ? { player: this.player } : {}),
     });
     if (!r.coverage.loaded) return unknown('region not loaded');

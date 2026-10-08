@@ -50,6 +50,7 @@ const setBlock: AtomicAction = {
     effectClass: 'consumable',
     retryPolicy: 'no',
     repairHint: ['retarget', 'reposition'],
+    timeoutTicks: 1100,
     postconditions: [{ subject: 'block@target', predicate: 'is', value: 'B' }],
   }),
   async run(ctx, args): Promise<ActionResult> {

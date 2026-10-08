@@ -43,7 +43,9 @@ scenarios/ tests/{semantics,integration} tools/ docs/
   - `@mc-agent/execution`:**37 个原子动作库**(统一 `Target`;`set_block`=两状态替换 + 隐式导航 + `set_block` 的 `allowModify` 脚手架开关)。
   - `@mc-agent/interfaces/mcp`:`buildTools()` 暴露全部原子动作。
   - `apps/agent`:**常驻进程**(单 body,Unix socket `/tmp/opencode/mc-agent.sock`)+ **薄 MCP 桥**(解耦)。
+- **Gate G1 通过(2026-10-08)**:真实 LLM 经 MCP 在真实服务器上**自主**砍下一根原木;由**独立验收器**(直接读观测 Mod 的 `block_changed` 事件 + 权威背包快照,**不复用系统谓词/结论**)判定:`minecraft:mangrove_log@(7,76,26)` 被 `actor=Bot` 破坏且背包原木 4→5。验收脚本:`tests/eval/g1-verifier.mjs`(`collect` / `verify`,exit 0=pass)。
 - 最近提交:`7ad02c5`(docs 动作库)、`c945616`(全量动作库)、`2589559`(Target+全量控制面)、`e097fb1`(resident/bridge)、`bbaccb7`/`e6450ba`/`f501665`/`2fda71c`(M1 各步)、`d327b97`(M0)。
+- G1 过程中发现并修复的真实缺陷:**(a)** 桥与常驻进程的连接在常驻重启后失效 → 桥改为**按需重连**;**(b)** 观测/只读工具被控制令牌阻塞、卡住的动作可永久占用身体 → 读操作改为**不占令牌**,所有动作加**硬超时并在超时后释放控制**,客户端每个操作也加了超时;**(c)** 区域查询在物品上限处**静默截断**导致"最近方块"报错(把 1.25 格的木头顶成 48.5)→ 按方块 id 在服务端过滤并显式处理截断。
 - **旧原型整体存档在分支 `proto/mcp-runtime`**(master 无残留)。
 
 ## 4. 构建 / 测试 / 运行
@@ -58,7 +60,12 @@ node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
 ```
 - OpenCode 的 `~/.config/opencode/opencode.json` 里 `mc-agent` MCP:
   `command: ["node","/home/c6h4o2/dev/mc-agent/apps/agent/dist/main-bridge.js"], enabled:true`。
-- 桥连不上 socket 时会 detached 起 resident;多会话共享**同一个** bot(避免 duplicate_login)。
+- 桥连不上 socket 时会 detached 起 resident;多会话共享**同一个** bot(避免 duplicate_login)。桥在 socket 断开后**按需重连**(常驻进程可重启)。
+- **独立验收(非 LLM smoke 之外)**:
+  ```sh
+  node tests/eval/g1-verifier.mjs collect --player Bot
+  node tests/eval/g1-verifier.mjs verify --epoch E --since S --before-log-count N --player Bot
+  ```
 
 ## 5. 待办(按设计,不留捷径)
 - **M2**:`world` **通用查询已完成(region/exposedFaces/standableSurfaces/connected + 官方标签匹配)**;待做 **关系(`reachable`/`lineOfSight`/`adjacentAir`/`support`/`hazardous`)** + 表面壳/多层表面图 + 两层地图;`execution` L1 reflex(实体威胁+自身状态,预测式包络 + tick 级中断/`control_uncertain`)+ L3 契约引擎(因果邻域签名 diff + 终止后置);`tasks` **有界词表执行**(`sequence/for_each/repeat/branch`+`set_difference/component/region`)。
