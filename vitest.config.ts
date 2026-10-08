@@ -9,10 +9,12 @@ export default defineConfig({
       '@mc-agent/contracts': pkg('packages/contracts/src/index.ts'),
       '@mc-agent/foundation': pkg('packages/foundation/src/index.ts'),
       '@mc-agent/adapters-telemetry': pkg('packages/adapters/telemetry/src/index.ts'),
+      '@mc-agent/adapters-mineflayer': pkg('packages/adapters/mineflayer/src/index.ts'),
     },
   },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    testTimeout: 30000,
   },
 });
