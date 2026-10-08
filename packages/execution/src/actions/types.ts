@@ -5,6 +5,7 @@ import type { ActionContract, ActionResult, ControlPort, JsonSchema } from '@mc-
 import type { World } from '@mc-agent/world';
 import type { ControlToken } from '../token.js';
 import type { ReflexShield } from '../reflex.js';
+import type { EffectScope, VerificationWindow, VerifyOutcome } from '../contract/signature.js';
 
 export interface ActionContext {
   world: World;
@@ -17,6 +18,10 @@ export interface ActionContext {
 export interface AtomicAction {
   contract: ActionContract;
   run(ctx: ActionContext, args: Record<string, unknown>): Promise<ActionResult>;
+  /** Where this action can causally change the world (anchors the L3 signature diff). */
+  scope?(ctx: ActionContext, args: Record<string, unknown>): Promise<EffectScope | null>;
+  /** Independent postcondition check; the engine uses it to judge and to reconcile timeouts. */
+  verify?(ctx: ActionContext, args: Record<string, unknown>, win: VerificationWindow): Promise<VerifyOutcome | null>;
 }
 
 export function contract(p: Partial<ActionContract> & { name: string; description: string; params: JsonSchema }): ActionContract {

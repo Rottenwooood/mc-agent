@@ -3,7 +3,7 @@
 
 import type { ActionResult, Target, Vec3 } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
-import { distance } from '@mc-agent/world';
+import { distance, key } from '@mc-agent/world';
 import { mk, pass, fail } from '../result.js';
 import type { ActionContext, AtomicAction } from './types.js';
 import { contract } from './types.js';
@@ -114,6 +114,26 @@ const setBlock: AtomicAction = {
         evidence: [{ claim: 'block_at_target', source: 'authoritative', value: after.value }],
       });
     });
+  },
+  async scope(ctx, args) {
+    const rt = await resolveTarget(ctx, args.target as Target);
+    if (!rt.ok || !rt.value.pos) return null;
+    const pos = rt.value.pos;
+    return {
+      box: { min: [pos[0] - 1, pos[1] - 1, pos[2] - 1] as Vec3, max: [pos[0] + 1, pos[1] + 1, pos[2] + 1] as Vec3 },
+      anchor: pos,
+    };
+  },
+  async verify(ctx, args, win) {
+    const pos = win.anchor;
+    if (!pos) return null;
+    const want = String(args.block);
+    const before = win.before.blocks.get(key(pos)) ?? AIR;
+    const after = win.after.blocks.get(key(pos)) ?? AIR;
+    return {
+      ok: after === want ? 'pass' : 'fail',
+      evidence: [{ claim: 'block_at_target', source: 'authoritative', before, after, value: after }],
+    };
   },
 };
 
