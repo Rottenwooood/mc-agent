@@ -6,6 +6,8 @@
     { "path": "packages/world" },
     { "path": "packages/execution" },
     { "path": "packages/adapters/telemetry" },
-    { "path": "packages/adapters/mineflayer" }
+    { "path": "packages/adapters/mineflayer" },
+    { "path": "packages/interfaces/mcp" },
+    { "path": "apps/agent" }
   ]
 }
