@@ -148,4 +148,8 @@ export interface ControlPort {
   lookupRecipe(item: string, table?: boolean): Promise<{ result: { item: string; count: number }; ingredients: { item: string; count: number }[]; requiresTable: boolean }[]>;
   worldInfo(): Promise<{ time: number; raining: boolean; dimension: string }>;
   containerContents(pos: Vec3): Promise<ItemStack[]>;
+  /** Whether a path exists to within `range` of a position, computed without moving (observed). */
+  canReach(pos: Vec3, opts?: MoveOptions): Promise<boolean>;
+  /** Whether a position is visible from the bot's eyes (observed). */
+  canSee(pos: Vec3): Promise<boolean>;
 }

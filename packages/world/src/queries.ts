@@ -4,7 +4,7 @@
 // "air". Callers must query a region *expanded by one* beyond the queried box so that
 // neighbour exposure at the box edge is resolved (otherwise it would be misread as air).
 
-import type { BlockCell, Box, Component, ExposedFace, Vec3 } from '@mc-agent/contracts';
+import type { BlockCell, Box, Component, ExposedFace, TagTable, Vec3 } from '@mc-agent/contracts';
 
 export const FACE_NEIGHBORS: Vec3[] = [
   [1, 0, 0],
@@ -48,6 +48,44 @@ export function expandBox(box: Box, by: number): Box {
     min: [box.min[0] - by, box.min[1] - by, box.min[2] - by],
     max: [box.max[0] + by, box.max[1] + by, box.max[2] + by],
   };
+}
+
+/**
+ * Hazard surfaces come from official damage tags only (no hand-made block family).
+ * Lava (a fluid) is added from authoritative fluid state when the observer exposes it.
+ */
+export const HAZARD_TAGS = ['minecraft:fire', 'minecraft:campfires'] as const;
+
+export function isHazardous(block: string, tags?: TagTable): boolean {
+  for (const t of HAZARD_TAGS) {
+    if ((tags?.blocks[t] ?? []).includes(block)) return true;
+  }
+  return false;
+}
+
+/** Sub-boxes of `a` that are not covered by `b` (up to 6 slabs); used to slide the shell window. */
+export function boxDiff(a: Box, b: Box): Box[] {
+  const disjoint =
+    a.max[0] < b.min[0] || a.min[0] > b.max[0] ||
+    a.max[1] < b.min[1] || a.min[1] > b.max[1] ||
+    a.max[2] < b.min[2] || a.min[2] > b.max[2];
+  if (disjoint) return [a];
+
+  const x0 = Math.max(a.min[0], b.min[0]);
+  const x1 = Math.min(a.max[0], b.max[0]);
+  const y0 = Math.max(a.min[1], b.min[1]);
+  const y1 = Math.min(a.max[1], b.max[1]);
+  const z0 = Math.max(a.min[2], b.min[2]);
+  const z1 = Math.min(a.max[2], b.max[2]);
+
+  const pieces: Box[] = [];
+  if (a.min[0] < x0) pieces.push({ min: [a.min[0], a.min[1], a.min[2]], max: [x0 - 1, a.max[1], a.max[2]] });
+  if (a.max[0] > x1) pieces.push({ min: [x1 + 1, a.min[1], a.min[2]], max: [a.max[0], a.max[1], a.max[2]] });
+  if (a.min[1] < y0) pieces.push({ min: [x0, a.min[1], a.min[2]], max: [x1, y0 - 1, a.max[2]] });
+  if (a.max[1] > y1) pieces.push({ min: [x0, y1 + 1, a.min[2]], max: [x1, a.max[1], a.max[2]] });
+  if (a.min[2] < z0) pieces.push({ min: [x0, y0, a.min[2]], max: [x1, y1, z0 - 1] });
+  if (a.max[2] > z1) pieces.push({ min: [x0, y0, z1 + 1], max: [x1, y1, a.max[2]] });
+  return pieces;
 }
 
 /** Exposed faces of the non-air cells inside `box` (neighbour air resolved from `cells`). */

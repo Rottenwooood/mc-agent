@@ -536,4 +536,30 @@ export class MineflayerControlPort implements ControlPort {
       try { if (win) await win.close(); } catch { /* ignore */ }
     }
   }
+
+  async canReach(pos: Vec3, opts: MoveOptions = {}): Promise<boolean> {
+    const bot = this.b();
+    this.setMovements(bot, opts.allowModify === true);
+    try {
+      const res = bot.pathfinder.getPathTo(
+        bot.pathfinder.movements,
+        new goals.GoalNear(pos[0], pos[1], pos[2], opts.range ?? 1),
+        opts.timeoutMs ?? 5000,
+      );
+      return res.status === 'success';
+    } catch {
+      return false;
+    }
+  }
+
+  async canSee(pos: Vec3): Promise<boolean> {
+    const bot = this.b();
+    try {
+      const target = bot.blockAt(V(pos));
+      if (!target) return false;
+      return bot.canSeeBlock(target);
+    } catch {
+      return false;
+    }
+  }
 }

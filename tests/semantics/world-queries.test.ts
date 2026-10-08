@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  boxDiff,
   connectedComponent,
   exposedFaces,
   makeBlockMatcher,
@@ -55,5 +56,22 @@ describe('world queries (pure)', () => {
     expect(m('minecraft:oak_planks')).toBe(false);
     // without the table a tag matches nothing (never a guessed taxonomy)
     expect(makeBlockMatcher({ kind: 'tag', tag: 'minecraft:logs' })('minecraft:oak_log')).toBe(false);
+  });
+
+  it('boxDiff yields the part of a sliding window not covered by the previous one', () => {
+    const a = box([0, 0, 0], [2, 2, 2]);
+    const b = box([1, 1, 1], [3, 3, 3]);
+    const parts = boxDiff(a, b);
+    const volume = (x: Box): number =>
+      (x.max[0] - x.min[0] + 1) * (x.max[1] - x.min[1] + 1) * (x.max[2] - x.min[2] + 1);
+    const total = parts.reduce((s, p) => s + volume(p), 0);
+    expect(total).toBe(27 - 8);
+    for (const p of parts) {
+      const overlaps =
+        p.max[0] >= b.min[0] && p.min[0] <= b.max[0] &&
+        p.max[1] >= b.min[1] && p.min[1] <= b.max[1] &&
+        p.max[2] >= b.min[2] && p.min[2] <= b.max[2];
+      expect(overlaps).toBe(false);
+    }
   });
 });
