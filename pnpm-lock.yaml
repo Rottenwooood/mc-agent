@@ -107,6 +107,18 @@ importers:
         specifier: workspace:*
         version: link:../../world
 
+  packages/tasks:
+    dependencies:
+      '@mc-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@mc-agent/execution':
+        specifier: workspace:*
+        version: link:../execution
+      '@mc-agent/world':
+        specifier: workspace:*
+        version: link:../world
+
   packages/world:
     dependencies:
       '@mc-agent/contracts':
