@@ -2,6 +2,7 @@
 
 export * from './fact.js';
 export * from './predicate.js';
+export * from './target.js';
 export * from './result.js';
 export * from './contract.js';
 export * from './method.js';

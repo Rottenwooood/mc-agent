@@ -82,15 +82,61 @@ export interface VisionPort {
   frame(): Promise<Frame>;
 }
 
-/** Player-legal control surface. Implemented by adapters/mineflayer. */
+// Player-legal control surface: the FULL primitive set across all domains
+// (framework §6 / docs/research/10 §2). Raw receipts only; never a success judgement.
+
+export interface MoveOptions {
+  range?: number;
+  timeoutMs?: number;
+  /** Allow pathfinder to modify terrain (dig/place) while moving. Default false (protected). */
+  allowModify?: boolean;
+}
+
+export interface AttackOptions {
+  weapon?: string;
+  durationMs?: number;
+}
+
 export interface ControlPort {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
-  goto(pos: Vec3, opts?: { range?: number; timeoutMs?: number }): Promise<ControlReceipt>;
+
+  // movement
+  goto(pos: Vec3, opts?: MoveOptions): Promise<ControlReceipt>;
+  follow(entityId: string, distance: number, durationMs?: number): Promise<ControlReceipt>;
+  flee(entityId: string, distance: number, timeoutMs?: number): Promise<ControlReceipt>;
+  lookAt(pos: Vec3): Promise<ControlReceipt>;
+  wait(ticks: number): Promise<ControlReceipt>;
+  steer(controls: string[], durationMs: number): Promise<ControlReceipt>;
+
+  // blocks
   dig(pos: Vec3): Promise<ControlReceipt>;
   place(pos: Vec3, face: Vec3, item?: string): Promise<ControlReceipt>;
   use(pos: Vec3): Promise<ControlReceipt>;
+
+  // entities / combat
+  attack(entityId: string, opts?: AttackOptions): Promise<ControlReceipt>;
+  interactEntity(entityId: string, item?: string): Promise<ControlReceipt>;
+  useItemOn(item: string, target: { pos?: Vec3; entityId?: string }): Promise<ControlReceipt>;
+
+  // inventory
   equip(item: string, destination?: string): Promise<ControlReceipt>;
-  craft(item: string, count: number): Promise<ControlReceipt>;
+  unequip(destination?: string): Promise<ControlReceipt>;
+  drop(item: string, count: number): Promise<ControlReceipt>;
+  transfer(item: string, count: number, opts: { from: 'inventory' | 'container'; to: 'inventory' | 'container'; pos?: Vec3 }): Promise<ControlReceipt>;
+  consume(item: string): Promise<ControlReceipt>;
+  useItem(item: string, releaseMs?: number): Promise<ControlReceipt>;
+
+  // containers / production
+  openContainer(pos: Vec3): Promise<ControlReceipt>;
+  closeContainer(): Promise<ControlReceipt>;
+  craft(item: string, count: number, tablePos?: Vec3): Promise<ControlReceipt>;
+  smelt(item: string, count: number, opts?: { fuel?: string; pos?: Vec3 }): Promise<ControlReceipt>;
+  enchant(item: string, choice: number, pos?: Vec3): Promise<ControlReceipt>;
+  anvilCombine(item1: string, item2: string, name?: string): Promise<ControlReceipt>;
+  trade(entityId: string, index: number, times: number): Promise<ControlReceipt>;
+
+  // meta
   chat(message: string): Promise<ControlReceipt>;
+  runCommand(command: string): Promise<ControlReceipt>;
 }

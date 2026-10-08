@@ -1,20 +1,19 @@
-// ControlPort over Mineflayer. Player-legal actions only; returns raw receipts and never
-// judges success (that is the execution/contract engine's job, using world evidence).
-// A receipt's evidence level is at most 'observed' (client-side); 'attributed' is decided
-// later from server events.
+// ControlPort over Mineflayer — the FULL player-legal primitive set across all domains.
+// Returns raw receipts and never judges success (that is execution + world evidence).
+// Navigation is protected by default (no terrain modification while pathing); callers may
+// opt in via `allowModify`, which is the same switch as "allowed to scaffold".
 
 import mineflayer from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import mcDataFactory from 'minecraft-data';
 import vec3 from 'vec3';
-import type { ControlPort, ControlReceipt, Vec3 } from '@mc-agent/contracts';
+import type { AttackOptions, ControlPort, ControlReceipt, MoveOptions, Vec3 } from '@mc-agent/contracts';
 import { PortError } from '@mc-agent/foundation';
 
-// Third-party plugin surfaces are dynamically attached; keep them loosely typed here.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const { pathfinder, Movements, goals } = pathfinderPkg as any;
-
-const V = (p: Vec3): unknown => new (vec3 as unknown as new (x: number, y: number, z: number) => unknown)(p[0], p[1], p[2]);
+const V = (p: Vec3): any => new (vec3 as any)(p[0], p[1], p[2]);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface MineflayerOptions {
   host?: string;
@@ -23,15 +22,16 @@ export interface MineflayerOptions {
   version?: string;
 }
 
-function accepted(level: ControlReceipt['level'], note?: string, raw?: unknown): ControlReceipt {
+const ok = (level: ControlReceipt['level'], note?: string, raw?: unknown): ControlReceipt => {
   const r: ControlReceipt = { accepted: true, level };
   if (note !== undefined) r.note = note;
   if (raw !== undefined) r.raw = raw;
   return r;
-}
+};
+const no = (note: string): ControlReceipt => ({ accepted: false, level: 'sent', note });
 
-function rejected(note: string): ControlReceipt {
-  return { accepted: false, level: 'sent', note };
+function short(item: string): string {
+  return item.includes(':') ? (item.split(':')[1] ?? item) : item;
 }
 
 export class MineflayerControlPort implements ControlPort {
@@ -55,23 +55,25 @@ export class MineflayerControlPort implements ControlPort {
     } as mineflayer.BotOptions);
 
     await new Promise<void>((resolve, reject) => {
-      const onSpawn = () => resolve();
-      bot.once('spawn', onSpawn);
+      bot.once('spawn', () => resolve());
       bot.once('error', (e: unknown) => reject(new PortError('CONNECT', String(e))));
       bot.once('kicked', (r: unknown) => reject(new PortError('KICKED', JSON.stringify(r))));
       bot.once('end', (r: unknown) => reject(new PortError('ENDED', String(r))));
     });
 
-    bot.loadPlugin(pathfinder as never);
+    bot.loadPlugin(pathfinder);
+    this.setMovements(bot, false);
+    this.bot = bot;
+  }
+
+  private setMovements(bot: any, allowModify: boolean): void {
     const mcData = mcDataFactory(bot.version);
     const moves = new Movements(bot, mcData);
-    // Protected movement by default: no digging/scaffolding/parkour while pathing.
-    moves.canDig = false;
-    moves.allow1by1towers = false;
+    moves.canDig = allowModify;
+    moves.allow1by1towers = allowModify;
     moves.allowParkour = false;
     moves.allowSprinting = true;
     bot.pathfinder.setMovements(moves);
-    this.bot = bot;
   }
 
   async disconnect(): Promise<void> {
@@ -82,96 +84,414 @@ export class MineflayerControlPort implements ControlPort {
     }
   }
 
-  private require(): any {
+  private b(): any {
     if (!this.bot) throw new PortError('NOT_CONNECTED', 'bot not connected');
     return this.bot;
   }
 
-  async goto(pos: Vec3, opts?: { range?: number; timeoutMs?: number }): Promise<ControlReceipt> {
-    const bot = this.require();
+  private itemId(item: string): unknown | null {
+    const it = this.b().registry.itemsByName[short(item)];
+    return it ? it.id : null;
+  }
+
+  // ---- movement ----
+
+  async goto(pos: Vec3, opts: MoveOptions = {}): Promise<ControlReceipt> {
+    const bot = this.b();
+    this.setMovements(bot, opts.allowModify === true);
+    const range = opts.range ?? 1;
+    const timeoutMs = opts.timeoutMs ?? 30000;
     try {
-      await bot.pathfinder.goto(new goals.GoalNear(pos[0], pos[1], pos[2], opts?.range ?? 1));
-      return accepted('observed', 'path resolved');
+      await Promise.race([
+        bot.pathfinder.goto(new goals.GoalNear(pos[0], pos[1], pos[2], range)),
+        sleep(timeoutMs).then(() => Promise.reject(new Error('goto timeout'))),
+      ]);
+      return ok('observed', 'path resolved');
     } catch (e) {
-      return rejected(String((e as Error)?.message ?? e));
+      return no(String((e as Error)?.message ?? e));
     }
   }
 
+  async follow(entityId: string, distance: number, durationMs = 5000): Promise<ControlReceipt> {
+    const bot = this.b();
+    const e = bot.entities[Number(entityId)];
+    if (!e) return no('entity not found');
+    try {
+      bot.pathfinder.setGoal(new goals.GoalFollow(e, distance), true);
+      await sleep(durationMs);
+      bot.pathfinder.stop();
+      return ok('observed', 'followed');
+    } catch (err) {
+      return no(String((err as Error)?.message ?? err));
+    }
+  }
+
+  async flee(entityId: string, distance: number, timeoutMs = 15000): Promise<ControlReceipt> {
+    const bot = this.b();
+    const e = bot.entities[Number(entityId)];
+    if (!e) return no('entity not found');
+    const dx = bot.entity.position.x - e.position.x;
+    const dz = bot.entity.position.z - e.position.z;
+    const len = Math.max(0.001, Math.hypot(dx, dz));
+    const gx = Math.round(bot.entity.position.x + (dx / len) * distance);
+    const gz = Math.round(bot.entity.position.z + (dz / len) * distance);
+    try {
+      await Promise.race([
+        bot.pathfinder.goto(new goals.GoalXZ(gx, gz)),
+        sleep(timeoutMs).then(() => Promise.reject(new Error('flee timeout'))),
+      ]);
+      return ok('observed', 'fled');
+    } catch (err) {
+      return no(String((err as Error)?.message ?? err));
+    }
+  }
+
+  async lookAt(pos: Vec3): Promise<ControlReceipt> {
+    try {
+      await this.b().lookAt(V(pos), true);
+      return ok('observed', 'looked');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async wait(ticks: number): Promise<ControlReceipt> {
+    try {
+      await this.b().waitForTicks(Math.max(0, Math.floor(ticks)));
+      return ok('observed', 'waited');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async steer(controls: string[], durationMs: number): Promise<ControlReceipt> {
+    const bot = this.b();
+    const set = new Set(controls);
+    for (const c of ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak']) {
+      try { bot.setControlState(c, set.has(c)); } catch { /* ignore */ }
+    }
+    await sleep(durationMs);
+    try { bot.clearControlStates(); } catch { /* ignore */ }
+    return ok('observed', 'steered');
+  }
+
+  // ---- blocks ----
+
   async dig(pos: Vec3): Promise<ControlReceipt> {
-    const bot = this.require();
+    const bot = this.b();
     const block = bot.blockAt(V(pos));
-    if (!block) return rejected('no block at position');
+    if (!block) return no('no block at position');
     try {
       await bot.dig(block);
-      return accepted('observed', 'dig completed');
+      return ok('observed', 'dig completed');
     } catch (e) {
-      return rejected(String((e as Error)?.message ?? e));
+      return no(String((e as Error)?.message ?? e));
     }
   }
 
   async place(pos: Vec3, face: Vec3, item?: string): Promise<ControlReceipt> {
-    const bot = this.require();
+    const bot = this.b();
     if (item) {
       const eq = await this.equip(item, 'hand');
       if (!eq.accepted) return eq;
     }
     const ref = bot.blockAt(V([pos[0] - face[0], pos[1] - face[1], pos[2] - face[2]]));
-    if (!ref) return rejected('no reference block for face');
+    if (!ref) return no('no reference block for face');
     try {
       await bot.placeBlock(ref, V(face));
-      return accepted('observed', 'placed');
+      return ok('observed', 'placed');
     } catch (e) {
-      return rejected(String((e as Error)?.message ?? e));
+      return no(String((e as Error)?.message ?? e));
     }
   }
 
   async use(pos: Vec3): Promise<ControlReceipt> {
-    const bot = this.require();
+    const bot = this.b();
     const block = bot.blockAt(V(pos));
-    if (!block) return rejected('no block at position');
+    if (!block) return no('no block at position');
     try {
       await bot.activateBlock(block);
-      return accepted('observed', 'activated');
+      return ok('observed', 'activated');
     } catch (e) {
-      return rejected(String((e as Error)?.message ?? e));
+      return no(String((e as Error)?.message ?? e));
     }
   }
+
+  // ---- entities / combat ----
+
+  async attack(entityId: string, opts: AttackOptions = {}): Promise<ControlReceipt> {
+    const bot = this.b();
+    if (opts.weapon) {
+      const eq = await this.equip(opts.weapon, 'hand');
+      if (!eq.accepted) return eq;
+    }
+    const e = bot.entities[Number(entityId)];
+    if (!e) return no('entity not found');
+    const deadline = Date.now() + (opts.durationMs ?? 5000);
+    while (Date.now() < deadline) {
+      const cur = bot.entities[Number(entityId)];
+      if (!cur) break;
+      try { bot.attack(cur); } catch { /* ignore */ }
+      await sleep(600);
+    }
+    return ok('observed', 'attacked');
+  }
+
+  async interactEntity(entityId: string, item?: string): Promise<ControlReceipt> {
+    const bot = this.b();
+    const e = bot.entities[Number(entityId)];
+    if (!e) return no('entity not found');
+    try {
+      if (item) {
+        const eq = await this.equip(item, 'hand');
+        if (!eq.accepted) return eq;
+        await bot.useOn(e);
+      } else {
+        await bot.activateEntity(e);
+      }
+      return ok('observed', 'interacted');
+    } catch (err) {
+      return no(String((err as Error)?.message ?? err));
+    }
+  }
+
+  async useItemOn(item: string, target: { pos?: Vec3; entityId?: string }): Promise<ControlReceipt> {
+    const bot = this.b();
+    const eq = await this.equip(item, 'hand');
+    if (!eq.accepted) return eq;
+    try {
+      if (target.entityId) {
+        const e = bot.entities[Number(target.entityId)];
+        if (!e) return no('entity not found');
+        await bot.useOn(e);
+      } else if (target.pos) {
+        const block = bot.blockAt(V(target.pos));
+        if (!block) return no('no block at position');
+        await bot.activateBlock(block);
+      } else {
+        return no('missing target');
+      }
+      return ok('observed', 'used item');
+    } catch (err) {
+      return no(String((err as Error)?.message ?? err));
+    }
+  }
+
+  // ---- inventory ----
 
   async equip(item: string, destination = 'hand'): Promise<ControlReceipt> {
-    const bot = this.require();
-    const short = item.includes(':') ? (item.split(':')[1] ?? item) : item;
-    const it = bot.registry.itemsByName[short];
-    if (!it) return rejected('unknown item ' + item);
+    const id = this.itemId(item);
+    if (id == null) return no('unknown item ' + item);
     try {
-      await bot.equip(it.id, destination);
-      return accepted('observed', 'equipped ' + short);
+      await this.b().equip(id, destination);
+      return ok('observed', 'equipped ' + short(item));
     } catch (e) {
-      return rejected(String((e as Error)?.message ?? e));
+      return no(String((e as Error)?.message ?? e));
     }
   }
 
-  async craft(item: string, count: number): Promise<ControlReceipt> {
-    const bot = this.require();
-    const short = item.includes(':') ? (item.split(':')[1] ?? item) : item;
-    const it = bot.registry.itemsByName[short];
-    if (!it) return rejected('unknown item ' + item);
+  async unequip(destination = 'hand'): Promise<ControlReceipt> {
     try {
-      const recipes = bot.recipesFor(it.id, null, count, null);
-      if (!recipes.length) return rejected('no recipe / missing ingredients');
-      await bot.craft(recipes[0], count, null);
-      return accepted('observed', 'crafted');
+      await this.b().unequip(destination);
+      return ok('observed', 'unequipped');
     } catch (e) {
-      return rejected(String((e as Error)?.message ?? e));
+      return no(String((e as Error)?.message ?? e));
     }
   }
+
+  async drop(item: string, count: number): Promise<ControlReceipt> {
+    const id = this.itemId(item);
+    if (id == null) return no('unknown item ' + item);
+    try {
+      await this.b().toss(id, null, Math.max(1, count));
+      return ok('observed', 'dropped');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async transfer(item: string, count: number, opts: { from: 'inventory' | 'container'; to: 'inventory' | 'container'; pos?: Vec3 }): Promise<ControlReceipt> {
+    const bot = this.b();
+    const id = this.itemId(item);
+    if (id == null) return no('unknown item ' + item);
+    if (!opts.pos) return no('transfer needs container position');
+    let win: any;
+    try {
+      win = await bot.openContainer(bot.blockAt(V(opts.pos)));
+      if (opts.from === 'inventory' && opts.to === 'container') await win.deposit(id, null, count);
+      else if (opts.from === 'container' && opts.to === 'inventory') await win.withdraw(id, null, count);
+      else return no('invalid direction');
+      return ok('observed', 'transferred');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    } finally {
+      try { if (win) await win.close(); } catch { /* ignore */ }
+    }
+  }
+
+  async consume(item: string): Promise<ControlReceipt> {
+    const eq = await this.equip(item, 'hand');
+    if (!eq.accepted) return eq;
+    try {
+      await this.b().consume();
+      return ok('observed', 'consumed');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async useItem(item: string, releaseMs = 1000): Promise<ControlReceipt> {
+    const eq = await this.equip(item, 'hand');
+    if (!eq.accepted) return eq;
+    const bot = this.b();
+    try {
+      bot.activateItem();
+      await sleep(releaseMs);
+      bot.deactivateItem();
+      return ok('observed', 'used item');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  // ---- containers / production ----
+
+  async openContainer(pos: Vec3): Promise<ControlReceipt> {
+    const bot = this.b();
+    const block = bot.blockAt(V(pos));
+    if (!block) return no('no block at position');
+    try {
+      await bot.openContainer(block);
+      return ok('observed', 'opened');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async closeContainer(): Promise<ControlReceipt> {
+    const bot = this.b();
+    if (!bot.currentWindow) return ok('observed', 'no window');
+    try {
+      await bot.closeWindow(bot.currentWindow);
+      return ok('observed', 'closed');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async craft(item: string, count: number, tablePos?: Vec3): Promise<ControlReceipt> {
+    const bot = this.b();
+    const id = this.itemId(item);
+    if (id == null) return no('unknown item ' + item);
+    const table = tablePos ? bot.blockAt(V(tablePos)) : null;
+    try {
+      const recipes = bot.recipesFor(id, null, count, table);
+      if (!recipes.length) return no('no recipe / missing ingredients');
+      await bot.craft(recipes[0], count, table);
+      return ok('observed', 'crafted');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async smelt(item: string, count: number, opts: { fuel?: string; pos?: Vec3 } = {}): Promise<ControlReceipt> {
+    const bot = this.b();
+    const id = this.itemId(item);
+    if (id == null) return no('unknown item ' + item);
+    const block = opts.pos ? bot.blockAt(V(opts.pos)) : bot.findBlock({ matching: bot.registry.blocksByName.furnace?.id, maxDistance: 8 });
+    if (!block) return no('no furnace');
+    let win: any;
+    try {
+      win = await bot.openFurnace(block);
+      await win.putInput(id, null, count);
+      if (opts.fuel) {
+        const fuel = this.itemId(opts.fuel);
+        if (fuel != null) await win.putFuel(fuel, null, 1);
+      }
+      for (let i = 0; i < 60; i++) {
+        await sleep(500);
+        if (win.outputItem()) break;
+      }
+      await win.takeOutput();
+      return ok('observed', 'smelted');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    } finally {
+      try { if (win) await win.close(); } catch { /* ignore */ }
+    }
+  }
+
+  async enchant(item: string, choice: number, pos?: Vec3): Promise<ControlReceipt> {
+    const bot = this.b();
+    const id = this.itemId(item);
+    if (id == null) return no('unknown item ' + item);
+    const block = pos ? bot.blockAt(V(pos)) : bot.findBlock({ matching: bot.registry.blocksByName.enchanting_table?.id, maxDistance: 8 });
+    if (!block) return no('no enchanting table');
+    let win: any;
+    try {
+      win = await bot.openEnchantmentTable(block);
+      await win.putTargetItem(id);
+      await win.enchant(choice);
+      await sleep(500);
+      await win.takeTargetItem();
+      return ok('observed', 'enchanted');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    } finally {
+      try { if (win) await win.close(); } catch { /* ignore */ }
+    }
+  }
+
+  async anvilCombine(item1: string, item2: string, name?: string): Promise<ControlReceipt> {
+    const bot = this.b();
+    const a = this.itemId(item1);
+    const b = this.itemId(item2);
+    if (a == null || b == null) return no('unknown item');
+    const block = bot.findBlock({ matching: bot.registry.blocksByName.anvil?.id, maxDistance: 8 });
+    if (!block) return no('no anvil');
+    let win: any;
+    try {
+      win = await bot.openAnvil(block);
+      await win.combine(a, b, name);
+      return ok('observed', 'combined');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
+    } finally {
+      try { if (win) await win.close(); } catch { /* ignore */ }
+    }
+  }
+
+  async trade(entityId: string, index: number, times: number): Promise<ControlReceipt> {
+    const bot = this.b();
+    const e = bot.entities[Number(entityId)];
+    if (!e) return no('entity not found');
+    try {
+      const villager = await bot.openVillager(e);
+      await bot.trade(villager, index, times);
+      return ok('observed', 'traded');
+    } catch (err) {
+      return no(String((err as Error)?.message ?? err));
+    }
+  }
+
+  // ---- meta ----
 
   async chat(message: string): Promise<ControlReceipt> {
-    const bot = this.require();
     try {
-      bot.chat(message);
-      return accepted('sent', 'chat sent');
+      this.b().chat(message);
+      return ok('sent', 'chat sent');
     } catch (e) {
-      return rejected(String((e as Error)?.message ?? e));
+      return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  async runCommand(command: string): Promise<ControlReceipt> {
+    const cmd = command.startsWith('/') ? command : '/' + command;
+    try {
+      this.b().chat(cmd);
+      return ok('sent', 'command sent');
+    } catch (e) {
+      return no(String((e as Error)?.message ?? e));
     }
   }
 }
