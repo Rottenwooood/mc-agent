@@ -50,6 +50,18 @@ importers:
 
   packages/contracts: {}
 
+  packages/execution:
+    dependencies:
+      '@mc-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@mc-agent/foundation':
+        specifier: workspace:*
+        version: link:../foundation
+      '@mc-agent/world':
+        specifier: workspace:*
+        version: link:../world
+
   packages/foundation:
     dependencies:
       '@mc-agent/contracts':
