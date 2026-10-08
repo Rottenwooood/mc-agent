@@ -35,11 +35,17 @@ bot.once('spawn', async () => {
       bot.chat(command.startsWith('/') ? command : '/' + command);
       await new Promise((r) => setTimeout(r, 700));
     } else if (mode === 'dig') {
-      const pos = new (require('vec3'))(Number(rest[0]), Number(rest[1]), Number(rest[2]));
+      const x = Number(rest[0]);
+      const y = Number(rest[1]);
+      const z = Number(rest[2]);
+      // Op self-teleport next to the target, then genuinely break it (so the event logs actor=Setup).
+      bot.chat(`/tp Setup ${x} ${y + 2} ${z}`);
+      await new Promise((r) => setTimeout(r, 900));
+      const pos = new (require('vec3'))(x, y, z);
       const block = bot.blockAt(pos);
       if (!block) throw new Error('no block at ' + pos);
       await bot.dig(block, true);
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 500));
     } else {
       throw new Error('unknown mode ' + mode);
     }

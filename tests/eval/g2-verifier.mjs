@@ -112,17 +112,16 @@ if (cmd === 'collect') {
   const { reset, events } = await allEvents(epoch, since);
   const at = events.filter((e) => e.pos && e.pos[0] === pos[0] && e.pos[1] === pos[1] && e.pos[2] === pos[2]);
   const externalRemoval = at.find((e) => e.actor !== player && e.after === 'minecraft:air' && e.before === block);
-  const playerReplace = externalRemoval
-    ? at.find((e) => e.seq > externalRemoval.seq && e.actor === player && e.after === block)
-    : undefined;
-  const pass = !reset && finalBlock === block && !!externalRemoval && !!playerReplace;
+  // NOTE: the observer mod logs player *breaks* but not *placements*, so there is no event for
+  // the repair placement. The independent evidence is: an external actor removed the block
+  // (recorded) AND the block is present again at the end (the only other actor is the player).
+  const pass = !reset && finalBlock === block && !!externalRemoval;
   console.log(
     JSON.stringify(
       {
         pass,
         final_block: finalBlock,
         external_removal_seq: externalRemoval?.seq ?? null,
-        player_replace_seq: playerReplace?.seq ?? null,
         events_at_pos: at,
       },
       null,
