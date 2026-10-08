@@ -1,5 +1,8 @@
 // Thin MCP stdio bridge: ensures the resident is running, then forwards tools/list and
 // tools/call over the Unix socket. It holds no execution logic (framework §0).
+//
+// The resident is long-lived and may be restarted (code changes), so the bridge reconnects
+// on demand: if the socket closes, pending calls reject and the next request re-attaches.
 
 import net from 'node:net';
 import { spawn } from 'node:child_process';
@@ -38,7 +41,7 @@ function tryConnect(sockPath: string, timeoutMs = 800): Promise<net.Socket | nul
   });
 }
 
-async function ensureResident(sockPath: string): Promise<net.Socket> {
+async function connectResident(sockPath: string): Promise<net.Socket> {
   let s = await tryConnect(sockPath);
   if (s) return s;
   if (process.env.MCAGENT_SPAWN !== '0') {
@@ -56,18 +59,45 @@ async function ensureResident(sockPath: string): Promise<net.Socket> {
   throw new Error('resident did not come up at ' + sockPath);
 }
 
-class ResidentClient {
-  private sock!: net.Socket;
-  private buf = '';
-  private readonly pending = new Map<number, (m: Res) => void>();
-  private id = 1;
+interface Pending {
+  resolve: (m: Res) => void;
+  reject: (e: Error) => void;
+}
 
-  attach(sock: net.Socket): void {
+class ResidentClient {
+  private sock: net.Socket | null = null;
+  private buf = '';
+  private readonly pending = new Map<number, Pending>();
+  private id = 1;
+  private attaching: Promise<void> | null = null;
+
+  constructor(private readonly sockPath: string) {}
+
+  private async attach(): Promise<void> {
+    const sock = await connectResident(this.sockPath);
     this.sock = sock;
     this.buf = '';
     sock.setEncoding('utf8');
     sock.on('data', (d) => this.onData(String(d)));
-    sock.on('error', () => {});
+    sock.on('error', () => this.onClose());
+    sock.on('close', () => this.onClose());
+  }
+
+  private async ensure(): Promise<void> {
+    if (this.sock) return;
+    if (!this.attaching) {
+      this.attaching = this.attach().finally(() => {
+        this.attaching = null;
+      });
+    }
+    await this.attaching;
+  }
+
+  private onClose(): void {
+    this.sock = null;
+    const err = new Error('resident disconnected');
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
   }
 
   private onData(d: string): void {
@@ -86,33 +116,53 @@ class ResidentClient {
       const cb = this.pending.get(m.id);
       if (cb) {
         this.pending.delete(m.id);
-        cb(m);
+        cb.resolve(m);
       }
     }
   }
 
-  request(op: 'list' | 'call', name?: string, args?: Record<string, unknown>): Promise<Res> {
+  private attempt(op: 'list' | 'call', name?: string, args?: Record<string, unknown>): Promise<Res> {
+    const sock = this.sock;
+    if (!sock) return Promise.reject(new Error('resident disconnected'));
     const id = this.id++;
     const msg: Req = op === 'list' ? { id, op: 'list' } : { id, op: 'call', name: name ?? '', args: args ?? {} };
-    this.sock.write(JSON.stringify(msg) + '\n');
+    sock.write(JSON.stringify(msg) + '\n');
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error('resident timeout: ' + op));
       }, 300000);
-      this.pending.set(id, (m) => {
-        clearTimeout(t);
-        resolve(m);
+      this.pending.set(id, {
+        resolve: (m) => {
+          clearTimeout(t);
+          resolve(m);
+        },
+        reject: (e) => {
+          clearTimeout(t);
+          reject(e);
+        },
       });
     });
+  }
+
+  async request(op: 'list' | 'call', name?: string, args?: Record<string, unknown>): Promise<Res> {
+    await this.ensure();
+    try {
+      return await this.attempt(op, name, args);
+    } catch (e) {
+      // One reconnect+retry when the resident connection dropped (e.g. resident restart).
+      if (!this.sock || String((e as Error).message).includes('disconnected')) {
+        await this.ensure();
+        return await this.attempt(op, name, args);
+      }
+      throw e;
+    }
   }
 }
 
 export async function startBridge(): Promise<void> {
   const sockPath = socketPath();
-  const sock = await ensureResident(sockPath);
-  const client = new ResidentClient();
-  client.attach(sock);
+  const client = new ResidentClient(sockPath);
 
   const server = new Server({ name: 'mc-agent', version: '0.1.0' }, { capabilities: { tools: {} } });
 
