@@ -1,15 +1,10 @@
-// Tool surface types. The model-facing surface is SEMANTIC (names/objects, no coordinates);
-// every tool returns an ActionResult (framework §9).
+// Tool surface types. The model-facing surface IS the atomic action library (all domains);
+// every tool returns an ActionResult.
 
-import type { ActionResult, ControlPort } from '@mc-agent/contracts';
-import type { World } from '@mc-agent/world';
-import type { ControlToken } from '@mc-agent/execution';
+import type { ActionResult } from '@mc-agent/contracts';
+import type { ActionContext } from '@mc-agent/execution';
 
-export interface ToolContext {
-  world: World;
-  ctrl: ControlPort;
-  token: ControlToken;
-}
+export type ToolContext = ActionContext;
 
 export interface ToolDef {
   name: string;

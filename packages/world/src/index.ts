@@ -3,6 +3,7 @@
 
 import type {
   BlockCell,
+  Box,
   EntityFact,
   ItemStack,
   MaybeFact,
@@ -28,9 +29,13 @@ export class World {
     return this.port.entities(radius != null ? { radius } : undefined);
   }
 
-  async selfPos(): Promise<Vec3 | undefined> {
-    const s = await this.port.status();
-    return isUnknown(s) ? undefined : s.value.pos;
+  selfPos(): Promise<Vec3 | undefined> {
+    return this.port.status().then((s) => (isUnknown(s) ? undefined : s.value.pos));
+  }
+
+  /** Bounded region query (authoritative non-air cells). */
+  query(box: Box): Promise<MaybeFact<BlockCell[]>> {
+    return this.port.query(box);
   }
 
   /** Authoritative block id at a position; 'minecraft:air' when confirmed empty, Unknown when not observed. */

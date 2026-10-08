@@ -1,0 +1,125 @@
+// Movement atomic actions. Targets are semantic; coordinates are resolved internally.
+
+import type { ActionResult, Target } from '@mc-agent/contracts';
+import { distance } from '@mc-agent/world';
+import { mk, pass, fail } from '../result.js';
+import type { AtomicAction } from './types.js';
+import { contract } from './types.js';
+import { resolveTarget } from './target.js';
+
+const goTo: AtomicAction = {
+  contract: contract({
+    name: 'go_to',
+    description: 'Pathfind to within `range` blocks of a target. Verified against the authoritative self position.',
+    params: {
+      type: 'object',
+      properties: { target: { type: 'object' }, range: { type: 'number', default: 1 }, allowModify: { type: 'boolean', default: false } },
+      required: ['target'],
+      additionalProperties: false,
+    },
+    verificationMode: 'task_terminal',
+    effectClass: 'idempotent',
+    retryPolicy: 'safe_once',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const target = args.target as Target;
+    const range = Number(args.range ?? 1);
+    const allowModify = args.allowModify === true;
+    return ctx.token.run(async () => {
+      const rt = await resolveTarget(ctx, target);
+      if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
+      const pos = rt.value.pos;
+      const r = await ctx.ctrl.goto(pos, { range, allowModify });
+      const self = await ctx.world.selfPos();
+      const arrived = !!self && distance(self, pos) <= range + 0.75;
+      if (arrived) return pass({ evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }], attribution: 'self_temporal' });
+      if (!r.accepted) return mk({ effectStatus: 'unobservable', controlStatus: 'needs_replan', reason: 'precondition_failed', reasonDetail: r.note });
+      return fail('effect_not_observed', { evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }] });
+    });
+  },
+};
+
+const lookAt: AtomicAction = {
+  contract: contract({
+    name: 'look_at',
+    description: 'Turn the view toward a target.',
+    params: { type: 'object', properties: { target: { type: 'object' } }, required: ['target'], additionalProperties: false },
+    effectClass: 'idempotent',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const target = args.target as Target;
+    return ctx.token.run(async () => {
+      const rt = await resolveTarget(ctx, target);
+      if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
+      const r = await ctx.ctrl.lookAt(rt.value.pos);
+      return r.accepted ? pass({ attribution: 'self_temporal' }) : fail('effect_not_observed', { reasonDetail: r.note });
+    });
+  },
+};
+
+const wait: AtomicAction = {
+  contract: contract({
+    name: 'wait',
+    description: 'Wait a number of game ticks (20/s).',
+    params: { type: 'object', properties: { ticks: { type: 'integer', default: 20 } }, additionalProperties: false },
+    effectClass: 'idempotent',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const r = await ctx.ctrl.wait(Number(args.ticks ?? 20));
+    return r.accepted ? pass({ evidence: [{ claim: 'waited', source: 'observed' }] }) : fail('effect_not_observed', { reasonDetail: r.note });
+  },
+};
+
+const follow: AtomicAction = {
+  contract: contract({
+    name: 'follow',
+    description: 'Follow a target entity for a bounded duration, keeping within `distance`.',
+    params: { type: 'object', properties: { target: { type: 'object' }, distance: { type: 'number', default: 3 }, durationMs: { type: 'integer', default: 5000 } }, required: ['target'], additionalProperties: false },
+    effectClass: 'idempotent',
+    verificationMode: 'task_terminal',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const target = args.target as Target;
+    return ctx.token.run(async () => {
+      const rt = await resolveTarget(ctx, target);
+      if (!rt.ok || !rt.value.entityId) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no entity' : rt.reason });
+      const r = await ctx.ctrl.follow(rt.value.entityId, Number(args.distance ?? 3), Number(args.durationMs ?? 5000));
+      return r.accepted ? mk({ effectStatus: 'pass', evidence: [{ claim: 'followed', source: 'observed' }], attribution: 'self_temporal' }) : fail('effect_not_observed', { reasonDetail: r.note });
+    });
+  },
+};
+
+const flee: AtomicAction = {
+  contract: contract({
+    name: 'flee',
+    description: 'Move away from a target entity to at least `distance` blocks.',
+    params: { type: 'object', properties: { target: { type: 'object' }, distance: { type: 'number', default: 12 } }, required: ['target'], additionalProperties: false },
+    effectClass: 'idempotent',
+    verificationMode: 'task_terminal',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const target = args.target as Target;
+    return ctx.token.run(async () => {
+      const rt = await resolveTarget(ctx, target);
+      if (!rt.ok || !rt.value.entityId) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no entity' : rt.reason });
+      const r = await ctx.ctrl.flee(rt.value.entityId, Number(args.distance ?? 12));
+      return r.accepted ? mk({ effectStatus: 'pass', evidence: [{ claim: 'fled', source: 'observed' }], attribution: 'self_temporal' }) : mk({ effectStatus: 'ambiguous', reason: 'effect_not_observed', reasonDetail: r.note, attribution: 'self_temporal' });
+    });
+  },
+};
+
+const steer: AtomicAction = {
+  contract: contract({
+    name: 'steer',
+    description: 'Low-level steering escape hatch: hold raw movement controls for a duration.',
+    params: { type: 'object', properties: { controls: { type: 'array', items: { type: 'string' } }, durationMs: { type: 'integer', default: 500 } }, required: ['controls'], additionalProperties: false },
+    effectClass: 'idempotent',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const controls = Array.isArray(args.controls) ? (args.controls as string[]) : [];
+    const r = await ctx.ctrl.steer(controls, Number(args.durationMs ?? 500));
+    return r.accepted ? pass({ evidence: [{ claim: 'steered', source: 'observed', value: controls }] }) : fail('effect_not_observed', { reasonDetail: r.note });
+  },
+};
+
+export const movementActions: AtomicAction[] = [goTo, follow, flee, lookAt, wait, steer];

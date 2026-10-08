@@ -139,4 +139,10 @@ export interface ControlPort {
   // meta
   chat(message: string): Promise<ControlReceipt>;
   runCommand(command: string): Promise<ControlReceipt>;
+
+  // client-side reads (observed; never authoritative)
+  raycast(maxDistance?: number): Promise<{ block?: { pos: Vec3; name: string }; entity?: { id: string; type: string } }>;
+  lookupRecipe(item: string, table?: boolean): Promise<{ result: { item: string; count: number }; ingredients: { item: string; count: number }[]; requiresTable: boolean }[]>;
+  worldInfo(): Promise<{ time: number; raining: boolean; dimension: string }>;
+  containerContents(pos: Vec3): Promise<ItemStack[]>;
 }

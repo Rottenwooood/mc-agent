@@ -70,6 +70,8 @@ export interface Evidence {
   source: Source;
   level?: EvidenceLevel;
   tick?: number;
+  before?: unknown;
+  after?: unknown;
   value?: unknown;
 }
 
@@ -77,6 +79,7 @@ export interface ActionResult {
   effectStatus: EffectStatus;
   controlStatus: ControlStatus;
   reason: Reason | null;
+  reasonDetail?: string;
   effects: EffectDiff[];
   evidence: Evidence[];
   /** First version: at most `self_temporal` (research 14 §3). */

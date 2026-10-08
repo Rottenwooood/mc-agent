@@ -7,6 +7,7 @@ export interface ResultParts {
   effectStatus: EffectStatus;
   controlStatus?: ControlStatus;
   reason?: Reason | null;
+  reasonDetail?: string;
   effects?: EffectDiff[];
   evidence?: Evidence[];
   attribution?: Attribution;
@@ -31,6 +32,7 @@ export function mk(p: ResultParts): ActionResult {
     control: 'returned',
   };
   if (p.data !== undefined) r.data = p.data;
+  if (p.reasonDetail !== undefined) r.reasonDetail = p.reasonDetail;
   if (p.subResults !== undefined) r.subResults = p.subResults;
   return r;
 }

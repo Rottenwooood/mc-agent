@@ -7,7 +7,7 @@ import mineflayer from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import mcDataFactory from 'minecraft-data';
 import vec3 from 'vec3';
-import type { AttackOptions, ControlPort, ControlReceipt, MoveOptions, Vec3 } from '@mc-agent/contracts';
+import type { AttackOptions, ControlPort, ControlReceipt, ItemStack, MoveOptions, Vec3 } from '@mc-agent/contracts';
 import { PortError } from '@mc-agent/foundation';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -492,6 +492,48 @@ export class MineflayerControlPort implements ControlPort {
       return ok('sent', 'command sent');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  // ---- client-side reads ----
+
+  async raycast(maxDistance = 5): Promise<{ block?: { pos: Vec3; name: string }; entity?: { id: string; type: string } }> {
+    const bot = this.b();
+    const b = bot.blockAtCursor(maxDistance);
+    const e = bot.entityAtCursor(maxDistance);
+    const out: { block?: { pos: Vec3; name: string }; entity?: { id: string; type: string } } = {};
+    if (b) out.block = { pos: [b.position.x, b.position.y, b.position.z], name: b.name };
+    if (e) out.entity = { id: String(e.id), type: e.name ?? 'unknown' };
+    return out;
+  }
+
+  async lookupRecipe(item: string, table = false): Promise<{ result: { item: string; count: number }; ingredients: { item: string; count: number }[]; requiresTable: boolean }[]> {
+    const bot = this.b();
+    const id = this.itemId(item);
+    if (id == null) return [];
+    const recipes = bot.recipesAll(id, null, table ? true : null);
+    return recipes.map((r: any) => ({
+      result: { item: 'minecraft:' + (bot.registry.items[r.result.id]?.name ?? r.result.id), count: r.result.count },
+      ingredients: (r.ingredients ?? []).map((i: any) => ({ item: 'minecraft:' + (bot.registry.items[i.id]?.name ?? i.id), count: i.count })),
+      requiresTable: !!r.requiresTable,
+    }));
+  }
+
+  async worldInfo(): Promise<{ time: number; raining: boolean; dimension: string }> {
+    const bot = this.b();
+    return { time: bot.time.timeOfDay, raining: bot.isRaining, dimension: bot.game.dimension };
+  }
+
+  async containerContents(pos: Vec3): Promise<ItemStack[]> {
+    const bot = this.b();
+    const block = bot.blockAt(V(pos));
+    if (!block) return [];
+    let win: any;
+    try {
+      win = await bot.openContainer(block);
+      return win.containerItems().map((i: any) => ({ slot: i.slot, item: 'minecraft:' + i.name, count: i.count }));
+    } finally {
+      try { if (win) await win.close(); } catch { /* ignore */ }
     }
   }
 }
