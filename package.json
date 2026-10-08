@@ -11,7 +11,8 @@
     "build": "tsc -b",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:tool": "vitest run tests/integration"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

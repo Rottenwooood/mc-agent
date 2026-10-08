@@ -18,7 +18,22 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@26.6.4)(vite@8.3.3(@types/node@26.6.4))
 
+  packages/adapters/telemetry:
+    dependencies:
+      '@mc-agent/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@mc-agent/foundation':
+        specifier: workspace:*
+        version: link:../../foundation
+
   packages/contracts: {}
+
+  packages/foundation:
+    dependencies:
+      '@mc-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
 packages:
 

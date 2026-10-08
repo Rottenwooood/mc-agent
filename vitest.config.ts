@@ -1,10 +1,14 @@
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+const pkg = (p: string) => path.resolve(import.meta.dirname, p);
+
 export default defineConfig({
   resolve: {
     alias: {
-      '@mc-agent/contracts': path.resolve(import.meta.dirname, 'packages/contracts/src/index.ts'),
+      '@mc-agent/contracts': pkg('packages/contracts/src/index.ts'),
+      '@mc-agent/foundation': pkg('packages/foundation/src/index.ts'),
+      '@mc-agent/adapters-telemetry': pkg('packages/adapters/telemetry/src/index.ts'),
     },
   },
   test: {

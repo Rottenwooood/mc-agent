@@ -1,7 +1,7 @@
 // Capability ports implemented by adapters (framework §4.7).
 // contracts must not depend on Mineflayer/Fabric/MCP.
 
-import type { Box, EvidenceLevel, Fact, Vec3 } from './fact.js';
+import type { Box, EvidenceLevel, Fact, MaybeFact, Vec3 } from './fact.js';
 
 export interface SelfState {
   pos: Vec3;
@@ -65,10 +65,10 @@ export interface Frame {
 }
 
 export interface WorldPort {
-  status(): Promise<Fact<SelfState>>;
-  entities(): Promise<Fact<EntityFact[]>>;
-  query(box: Box): Promise<Fact<BlockCell[]>>;
-  events(cursor?: EventCursor): Promise<EventPage>;
+  status(): Promise<MaybeFact<SelfState>>;
+  entities(opts?: { radius?: number }): Promise<MaybeFact<EntityFact[]>>;
+  query(box: Box): Promise<MaybeFact<BlockCell[]>>;
+  events(cursor?: EventCursor, max?: number): Promise<EventPage>;
 }
 
 export interface VisionPort {
