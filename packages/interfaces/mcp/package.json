@@ -14,7 +14,8 @@
   "dependencies": {
     "@mc-agent/contracts": "workspace:*",
     "@mc-agent/world": "workspace:*",
-    "@mc-agent/execution": "workspace:*"
+    "@mc-agent/execution": "workspace:*",
+    "@mc-agent/tasks": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

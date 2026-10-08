@@ -103,6 +103,9 @@ importers:
       '@mc-agent/execution':
         specifier: workspace:*
         version: link:../../execution
+      '@mc-agent/tasks':
+        specifier: workspace:*
+        version: link:../../tasks
       '@mc-agent/world':
         specifier: workspace:*
         version: link:../../world

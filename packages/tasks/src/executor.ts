@@ -6,7 +6,6 @@ import type {
   ActionStep,
   ActionResult,
   ControlStep,
-  Method,
   Predicate,
   Step,
   Tri,
@@ -23,6 +22,13 @@ export interface RunEnv {
   actions: Map<string, AtomicAction>;
   results: ActionResult[];
   budget: number;
+}
+
+/** A composable declared by the agent: bounded steps + optional terminal postconditions. */
+export interface Composable {
+  steps: Step[];
+  postconditions?: Predicate[];
+  name?: string;
 }
 
 const isActionStep = (s: Step): s is ActionStep => 'action' in s;
@@ -101,7 +107,7 @@ export interface RunMethodOptions {
 export async function runMethod(
   ctx: ActionContext,
   actions: Map<string, AtomicAction>,
-  method: Method,
+  method: Composable,
   opts: RunMethodOptions = {},
 ): Promise<ActionResult> {
   const env: RunEnv = { ctx, vars: { ...(opts.args ?? {}) }, actions, results: [], budget: opts.budget ?? 4096 };
@@ -109,7 +115,7 @@ export async function runMethod(
     await runStep(step, env);
     if (env.budget <= 0) break;
   }
-  const tri: Tri = await terminal(ctx, method.postconditions, env);
+  const tri: Tri = await terminal(ctx, method.postconditions ?? [], env);
   return mk({
     effectStatus: triToEffect(tri),
     controlStatus: 'completed',
