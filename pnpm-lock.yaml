@@ -56,6 +56,15 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  packages/world:
+    dependencies:
+      '@mc-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@mc-agent/foundation':
+        specifier: workspace:*
+        version: link:../foundation
+
 packages:
 
   '@azure/msal-common@14.16.1':

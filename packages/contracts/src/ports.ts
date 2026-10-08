@@ -26,6 +26,12 @@ export interface BlockCell {
   block: string;
 }
 
+export interface ItemStack {
+  slot: number;
+  item: string;
+  count: number;
+}
+
 export interface EventCursor {
   epoch: number;
   seq: number;
@@ -67,6 +73,7 @@ export interface Frame {
 export interface WorldPort {
   status(): Promise<MaybeFact<SelfState>>;
   entities(opts?: { radius?: number }): Promise<MaybeFact<EntityFact[]>>;
+  inventory(): Promise<MaybeFact<ItemStack[]>>;
   query(box: Box): Promise<MaybeFact<BlockCell[]>>;
   events(cursor?: EventCursor, max?: number): Promise<EventPage>;
 }

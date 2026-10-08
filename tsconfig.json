@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/foundation" },
+    { "path": "packages/world" },
     { "path": "packages/adapters/telemetry" },
     { "path": "packages/adapters/mineflayer" }
   ]

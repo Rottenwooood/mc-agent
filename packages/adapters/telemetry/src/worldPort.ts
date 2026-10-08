@@ -9,6 +9,7 @@ import type {
   EntityFact,
   EventCursor,
   EventPage,
+  ItemStack,
   MaybeFact,
   SelfState,
   Vec3,
@@ -93,8 +94,18 @@ export class TelemetryWorldPort implements WorldPort {
     return { value, source: 'authoritative', observedTick: r.server_tick, coverage: toCoverage(r.coverage) };
   }
 
-  async events(cursor?: EventCursor, max = 256): Promise<EventPage> {
-    const params = new URLSearchParams();
+  async inventory(): Promise<MaybeFact<ItemStack[]>> {
+    const r = await this.snapshot({
+      scope: { kind: 'egocentric', r: 0 },
+      want: ['inventory'],
+      ...(this.player ? { player: this.player } : {}),
+    });
+    if (!r.inventory) return unknown('inventory not present');
+    const value: ItemStack[] = r.inventory.map((i) => ({ slot: i.slot, item: i.item, count: i.count }));
+    return { value, source: 'authoritative', observedTick: r.server_tick, coverage: toCoverage(r.coverage) };
+  }
+
+  async events(cursor?: EventCursor, max = 256): Promise<EventPage> {    const params = new URLSearchParams();
     if (cursor) {
       params.set('epoch', String(cursor.epoch));
       params.set('seq', String(cursor.seq));
