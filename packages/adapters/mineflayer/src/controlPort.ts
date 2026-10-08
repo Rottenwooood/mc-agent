@@ -195,6 +195,11 @@ export class MineflayerControlPort implements ControlPort {
     const block = bot.blockAt(V(pos));
     if (!block) return no('no block at position');
     try {
+      // Tool-requiring blocks drop nothing without the right tool; equip the best available.
+      const tool = bot.pathfinder?.bestHarvestTool ? bot.pathfinder.bestHarvestTool(block) : null;
+      if (tool && tool.name) {
+        await this.equip(tool.name, 'hand');
+      }
       await race(bot.dig(block), 'dig');
       return ok('observed', 'dig completed');
     } catch (e) {

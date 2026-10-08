@@ -60,5 +60,15 @@ export async function evalSet(world: World, set: SetExpr, vars: Vars): Promise<V
       const bs = new Set(b.map((p) => key(p)));
       return a.filter((p) => !bs.has(key(p)));
     }
+    case 'box_cells': {
+      const box = resolveArg(set.box, vars) as Box;
+      const cells: Vec3[] = [];
+      for (let x = box.min[0]; x <= box.max[0]; x++) {
+        for (let y = box.min[1]; y <= box.max[1]; y++) {
+          for (let z = box.min[2]; z <= box.max[2]; z++) cells.push([x, y, z]);
+        }
+      }
+      return cells;
+    }
   }
 }

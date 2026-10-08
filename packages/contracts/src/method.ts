@@ -19,7 +19,9 @@ export type Filter =
 export type SetExpr =
   | { op: 'set_difference'; a: SetExpr; b: SetExpr }
   | { op: 'component'; seed: Arg; match: Filter; neighbor?: unknown; bounded?: Box }
-  | { op: 'region'; box: Arg; filter?: Filter };
+  | { op: 'region'; box: Arg; filter?: Filter }
+  /** Every integer cell of a box (the "desired" side of a build, including air targets). */
+  | { op: 'box_cells'; box: Arg };
 
 export interface ActionStep {
   action: string;
