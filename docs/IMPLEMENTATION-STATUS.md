@@ -36,10 +36,10 @@ scenarios/ tests/{semantics,integration} tools/ docs/
 ## 3. 已完成
 - **M0**:workspace + `@mc-agent/contracts`(冻结类型 + Kleene 三值)+ 语义单测。
 - **M1 底盘**:
-  - `mods/server-observer` 数据契约:`GET /health`、`POST /snapshot`(单 tick 原子 `snapshot_seq`+`coverage`+每事实 `obs_seq/observed_tick`)、`GET /events`(`epoch`/`cursor`/`has_more`/`reset_required`)。**已真实服务器 smoke 通过**。
+  - `mods/server-observer` 数据契约:`GET /health`、`POST /snapshot`(单 tick 原子 `snapshot_seq`+`coverage`+每事实 `obs_seq/observed_tick`)、`GET /events`(`epoch`/`cursor`/`has_more`/`reset_required`)、`GET /tags`(服务端权威的官方方块/实体标签表;191 方块标签/16 实体标签,`#logs` 已实测解析)。**已真实服务器 smoke 通过**。
   - `@mc-agent/foundation` + `adapters-telemetry`(Fact/unknown)+ 非 LLM 工具 smoke。
   - `adapters-mineflayer`:`ControlPort` **全量**(movement/blocks/entities/inventory/containers/meta + raycast/recipes/worldInfo/containerContents)。
-  - `@mc-agent/world`:status/inventory/entities/blockAt/findNearestBlock/query + 几何单测。
+  - `@mc-agent/world`:status/inventory/entities/blockAt/findNearestBlock/query;**通用查询 `region`/`exposedFaces`/`standableSurfaces`/`connected`(连通分量)+ 官方标签匹配 + 纯函数单测**(2026-10-08 增补)。
   - `@mc-agent/execution`:**37 个原子动作库**(统一 `Target`;`set_block`=两状态替换 + 隐式导航 + `set_block` 的 `allowModify` 脚手架开关)。
   - `@mc-agent/interfaces/mcp`:`buildTools()` 暴露全部原子动作。
   - `apps/agent`:**常驻进程**(单 body,Unix socket `/tmp/opencode/mc-agent.sock`)+ **薄 MCP 桥**(解耦)。
@@ -61,7 +61,7 @@ node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
 - 桥连不上 socket 时会 detached 起 resident;多会话共享**同一个** bot(避免 duplicate_login)。
 
 ## 5. 待办(按设计,不留捷径)
-- **M2**:`world` 通用查询与关系(`connected/region/exposed_faces/standable_surfaces/relations`,基于 MC tag)+ 表面壳/多层表面图/两层地图;`execution` L1 reflex(实体威胁+自身状态,预测式包络 + tick 级中断/`control_uncertain`)+ L3 契约引擎(因果邻域签名 diff + 终止后置);`tasks` **有界词表执行**(`sequence/for_each/repeat/branch`+`set_difference/component/region`)。
+- **M2**:`world` **通用查询已完成(region/exposedFaces/standableSurfaces/connected + 官方标签匹配)**;待做 **关系(`reachable`/`lineOfSight`/`adjacentAir`/`support`/`hazardous`)** + 表面壳/多层表面图 + 两层地图;`execution` L1 reflex(实体威胁+自身状态,预测式包络 + tick 级中断/`control_uncertain`)+ L3 契约引擎(因果邻域签名 diff + 终止后置);`tasks` **有界词表执行**(`sequence/for_each/repeat/branch`+`set_difference/component/region`)。
 - **M3**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用词表造。
 - **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;可视化(prismarine-viewer 调试 + headless 出帧)。
 - **M5**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标 + 消融)+ `scenarios/`(T1–T4 + 种子清单 + fixtures + `reset-world.sh`)。

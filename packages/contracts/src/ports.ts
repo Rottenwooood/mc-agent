@@ -2,6 +2,7 @@
 // contracts must not depend on Mineflayer/Fabric/MCP.
 
 import type { Box, EvidenceLevel, Fact, MaybeFact, Vec3 } from './fact.js';
+import type { TagTable } from './world.js';
 
 export interface SelfState {
   pos: Vec3;
@@ -76,6 +77,8 @@ export interface WorldPort {
   inventory(): Promise<MaybeFact<ItemStack[]>>;
   query(box: Box): Promise<MaybeFact<BlockCell[]>>;
   events(cursor?: EventCursor, max?: number): Promise<EventPage>;
+  /** Official tag tables (server-authoritative). Bound at server start; safe to cache. */
+  tags(): Promise<MaybeFact<TagTable>>;
 }
 
 export interface VisionPort {

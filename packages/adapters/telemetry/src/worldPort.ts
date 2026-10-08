@@ -12,13 +12,14 @@ import type {
   ItemStack,
   MaybeFact,
   SelfState,
+  TagTable,
   Vec3,
   WorldEvent,
   WorldPort,
 } from '@mc-agent/contracts';
 import { unknown } from '@mc-agent/contracts';
 import { getJson, observerConfigFromEnv, postJson, type ObserverConfig } from '@mc-agent/foundation';
-import type { WireCoverage, WireEvents, WireSnapshot } from './wire.js';
+import type { WireCoverage, WireEvents, WireSnapshot, WireTags } from './wire.js';
 
 type Scope =
   | { kind: 'box'; min: Vec3; max: Vec3 }
@@ -129,6 +130,15 @@ export class TelemetryWorldPort implements WorldPort {
       resetRequired: r.reset_required,
       events,
     };
+  }
+
+  async tags(): Promise<MaybeFact<TagTable>> {
+    const r = await getJson<WireTags>(this.cfg.baseUrl + '/tags', {
+      timeoutMs: this.cfg.timeoutMs,
+      ...(this.cfg.token ? { token: this.cfg.token } : {}),
+    });
+    const value: TagTable = { blocks: r.blocks ?? {}, entities: r.entities ?? {} };
+    return { value, source: 'authoritative', observedTick: r.server_tick, coverage: { loaded: true, truncated: false } };
   }
 
   /** Liveness check (not part of WorldPort). */

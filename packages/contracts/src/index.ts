@@ -7,4 +7,5 @@ export * from './result.js';
 export * from './contract.js';
 export * from './method.js';
 export * from './task.js';
+export * from './world.js';
 export * from './ports.js';

@@ -74,3 +74,10 @@ export interface WireEvents {
   reset_required: boolean;
   events: WireEvent[];
 }
+
+export interface WireTags {
+  ok: boolean;
+  server_tick: number;
+  blocks: Record<string, string[]>;
+  entities: Record<string, string[]>;
+}

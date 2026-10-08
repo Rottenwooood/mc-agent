@@ -99,7 +99,7 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 - 动态/生成:技能库为源;`run_skill`+`list_skills`;稳定技能启动时晋升一等工具;`define_skill`(在有界词表内生成工具)+ 模块加载器;变更发 `tools/list_changed`。
 
 ## 10. mods/server-observer 契约(只读,`14 §4`)
-`/health`;`/snapshot`(单 tick 原子 + `snapshot_seq` + `coverage` + 每事实 `obs_seq/observed_tick`);`/events?since=<{epoch,seq}>`(`cursor/has_more/reset_required`);`/markers`;`isLoaded=false→unknown`;只读 + token;**归因上限 `self_temporal`**。
+`/health`;`/snapshot`(单 tick 原子 + `snapshot_seq` + `coverage` + 每事实 `obs_seq/observed_tick`);`/events?since=<{epoch,seq}>`(`cursor/has_more/reset_required`);**`/tags`(服务端权威的官方方块/实体标签表,供"按标签匹配",不自造分类)**;`/markers`;`isLoaded=false→unknown`;只读 + token;**归因上限 `self_temporal`**。
 
 ## 11. 环境 / 工具链(`16`)
 MC 1.20.1 · Loader 0.19.5 · Fabric API 0.92.12+1.20.1 · Loom 1.18.2 · Gradle 9.7.1 · Mojang 映射 · target 17;JDK 25;Node 24 + pnpm;`.nvmrc`/`pnpm-lock.yaml`/`gradle.lockfile`/wrapper sha256。`tools/{setup,server-up,bot-up,view-up,client-up,reset-world}.sh`。

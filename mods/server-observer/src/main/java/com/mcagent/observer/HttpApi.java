@@ -8,13 +8,19 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderSet;
+import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
@@ -44,6 +50,8 @@ import java.util.concurrent.TimeUnit;
  *       provenance. Accepts a JSON body, and also tolerates query params for convenience.</li>
  *   <li>{@code GET  /events}   — block-change events with {@code (epoch, seq)} cursor,
  *       {@code has_more} and {@code reset_required}.</li>
+ *   <li>{@code GET  /tags}     — authoritative official block/entity tag tables
+ *       (tag id -> member ids), used for family matching (never a hand-made taxonomy).</li>
  * </ul>
  * It never mutates the world. Optional bearer token via {@code mcagent.observer.token}.
  */
@@ -72,6 +80,7 @@ public final class HttpApi {
             http.createContext("/health", ex -> handle(ex, HttpApi::health));
             http.createContext("/snapshot", ex -> handle(ex, HttpApi::snapshot));
             http.createContext("/events", ex -> handle(ex, HttpApi::events));
+            http.createContext("/tags", ex -> handle(ex, HttpApi::tags));
             http.setExecutor(pool);
             http.start();
         } catch (IOException e) {
@@ -367,10 +376,43 @@ public final class HttpApi {
         return out;
     }
 
+    private static JsonObject tags(HttpExchange ex) throws Exception {
+        return onServer(HttpApi::tagsOnServer);
+    }
+
+    /** Official, server-authoritative tag tables. Built from the bound registries, not from any hand-made list. */
+    private static JsonObject tagsOnServer() {
+        MinecraftServer s = ObserverMod.server;
+        if (s == null) {
+            throw new IllegalStateException("server not running");
+        }
+        JsonObject out = new JsonObject();
+        out.addProperty("server_tick", ObserverMod.tick);
+        out.add("blocks", registryTags(s.registryAccess().registryOrThrow(Registries.BLOCK)));
+        out.add("entities", registryTags(s.registryAccess().registryOrThrow(Registries.ENTITY_TYPE)));
+        return out;
+    }
+
+    private static <T> JsonObject registryTags(Registry<T> reg) {
+        JsonObject tags = new JsonObject();
+        reg.getTags().forEach(pair -> {
+            TagKey<T> key = pair.getFirst();
+            HolderSet.Named<T> set = pair.getSecond();
+            JsonArray arr = new JsonArray();
+            for (Holder<T> h : set) {
+                ResourceLocation rl = reg.getKey(h.value());
+                if (rl != null) {
+                    arr.add(rl.toString());
+                }
+            }
+            tags.add(key.location().toString(), arr);
+        });
+        return tags;
+    }
+
     // ---- helpers ----
 
-    private static ServerPlayer resolvePlayer(MinecraftServer s, JsonObject req, Map<String, String> q) {
-        String name = str(req, "player", q.get("player"));
+    private static ServerPlayer resolvePlayer(MinecraftServer s, JsonObject req, Map<String, String> q) {        String name = str(req, "player", q.get("player"));
         if (name == null && req.has("scope") && req.get("scope").isJsonObject()) {
             JsonObject sc = req.getAsJsonObject("scope");
             if (sc.has("player")) {
