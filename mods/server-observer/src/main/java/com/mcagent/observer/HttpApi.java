@@ -19,6 +19,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -313,6 +315,8 @@ public final class HttpApi {
                 JsonObject j = new JsonObject();
                 j.addProperty("id", e.getId());
                 j.addProperty("type", key == null ? "unknown" : key.toString());
+                j.addProperty("hostile", e instanceof Enemy);
+                j.addProperty("projectile", e instanceof Projectile);
                 j.add("pos", vec(new double[] {e.getX(), e.getY(), e.getZ()}));
                 j.addProperty("source", "authoritative");
                 j.addProperty("observed_tick", tick);

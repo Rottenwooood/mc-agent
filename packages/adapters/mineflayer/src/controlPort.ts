@@ -175,6 +175,14 @@ export class MineflayerControlPort implements ControlPort {
     return ok('observed', 'steered');
   }
 
+  async stopMotion(): Promise<ControlReceipt> {
+    const bot = this.b();
+    try { bot.pathfinder.stop(); } catch { /* ignore */ }
+    try { bot.clearControlStates(); } catch { /* ignore */ }
+    try { bot.deactivateItem(); } catch { /* ignore */ }
+    return ok('observed', 'motion stopped');
+  }
+
   // ---- blocks ----
 
   async dig(pos: Vec3): Promise<ControlReceipt> {

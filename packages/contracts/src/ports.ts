@@ -19,6 +19,7 @@ export interface EntityFact {
   type: string;
   pos: Vec3;
   hostile?: boolean;
+  projectile?: boolean;
   distance?: number;
 }
 
@@ -111,6 +112,8 @@ export interface ControlPort {
   lookAt(pos: Vec3): Promise<ControlReceipt>;
   wait(ticks: number): Promise<ControlReceipt>;
   steer(controls: string[], durationMs: number): Promise<ControlReceipt>;
+  /** Release control immediately (stop pathing, clear held controls, stop item use). */
+  stopMotion(): Promise<ControlReceipt>;
 
   // blocks
   dig(pos: Vec3): Promise<ControlReceipt>;

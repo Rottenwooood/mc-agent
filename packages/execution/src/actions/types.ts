@@ -4,11 +4,14 @@
 import type { ActionContract, ActionResult, ControlPort, JsonSchema } from '@mc-agent/contracts';
 import type { World } from '@mc-agent/world';
 import type { ControlToken } from '../token.js';
+import type { ReflexShield } from '../reflex.js';
 
 export interface ActionContext {
   world: World;
   ctrl: ControlPort;
   token: ControlToken;
+  /** L1 reflex shield; when present, actions run guarded (see guard.ts). */
+  reflex?: ReflexShield;
 }
 
 export interface AtomicAction {

@@ -32,6 +32,8 @@ export interface WireEntity {
   id: number;
   type: string;
   pos: number[];
+  hostile?: boolean;
+  projectile?: boolean;
   source: string;
   observed_tick: number;
 }

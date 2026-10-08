@@ -4,7 +4,7 @@
 import { MineflayerControlPort } from '@mc-agent/adapters-mineflayer';
 import { TelemetryWorldPort } from '@mc-agent/adapters-telemetry';
 import { World } from '@mc-agent/world';
-import { ControlToken } from '@mc-agent/execution';
+import { ControlToken, ReflexShield } from '@mc-agent/execution';
 import { ToolRegistry, buildTools, type ToolContext } from '@mc-agent/interfaces-mcp';
 
 export interface AppContext {
@@ -12,6 +12,7 @@ export interface AppContext {
   world: World;
   ctrl: MineflayerControlPort;
   token: ControlToken;
+  reflex: ReflexShield;
   registry: ToolRegistry;
   toolCtx: ToolContext;
 }
@@ -27,9 +28,10 @@ export async function createContext(opts: CreateOptions = {}): Promise<AppContex
 
   const world = new World(new TelemetryWorldPort(undefined, username));
   const token = new ControlToken();
+  const reflex = new ReflexShield(world);
   const registry = new ToolRegistry();
-  const toolCtx: ToolContext = { world, ctrl, token };
+  const toolCtx: ToolContext = { world, ctrl, token, reflex };
   for (const t of buildTools()) registry.register(t);
 
-  return { username, world, ctrl, token, registry, toolCtx };
+  return { username, world, ctrl, token, reflex, registry, toolCtx };
 }

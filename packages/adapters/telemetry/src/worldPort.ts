@@ -79,7 +79,12 @@ export class TelemetryWorldPort implements WorldPort {
       ...(this.player ? { player: this.player } : {}),
     });
     if (!r.coverage.loaded) return unknown('region not loaded');
-    const value: EntityFact[] = (r.entities ?? []).map((e) => ({ id: String(e.id), type: e.type, pos: v3(e.pos) }));
+    const value: EntityFact[] = (r.entities ?? []).map((e) => {
+      const f: EntityFact = { id: String(e.id), type: e.type, pos: v3(e.pos) };
+      if (e.hostile !== undefined) f.hostile = e.hostile;
+      if (e.projectile !== undefined) f.projectile = e.projectile;
+      return f;
+    });
     return { value, source: 'authoritative', observedTick: r.server_tick, coverage: toCoverage(r.coverage) };
   }
 
