@@ -7,14 +7,17 @@
 //
 // The first arg is a directory that can resolve `mineflayer` (the adapter package).
 
+import path from 'node:path';
+
 const [dir, mode, ...rest] = process.argv.slice(2);
 if (!dir || !mode) {
   console.error('usage: setup-bot.mjs <dir-with-mineflayer> cmd|dig ...');
   process.exit(64);
 }
-process.chdir(dir);
-const { createServer } = await import('node:module');
-const require = createServer().createRequire(import.meta.url);
+const absDir = path.resolve(dir);
+process.chdir(absDir);
+const { createRequire } = await import('node:module');
+const require = createRequire(path.join(absDir, 'setup-bot.cjs'));
 const mineflayer = require('mineflayer');
 
 const host = process.env.MC_HOST ?? '127.0.0.1';
