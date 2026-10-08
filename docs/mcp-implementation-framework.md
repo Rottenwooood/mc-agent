@@ -57,6 +57,21 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 - **L3 Contract Engine**:点后置代数(因果邻域签名 diff + 归因);连续不变量(安全/进展/终止);终止后置整体验收;验证用 world 证据。
 - **持续动作(写设计,后做)**:`explore(direction, until=谓词, budget)` —— 只给"前方"参数的自动避障前进,按频率查询谓词,**命中/超时/危险即中断并交还控制**。详见 `world-map-and-composition.md §9`。
 
+### 6.1 原子动作库(全量;已实现于 `packages/execution`)
+所有动作以 `Target`(语义)为参数,返回冻结 `ActionResult`;核心方块动作 `set_block` 为**两状态替换**(当前==B 跳过;air→放置;非 air→破坏+放置;B=air→破坏),导航**隐式**(参数 `navigate`)或显式(`go_to`),`allowModify` 开关 = 是否允许导航放/破坏(= 脚手架),默认关。
+
+| 域 | 动作 |
+|---|---|
+| 感知 | observe / get_self_status / get_inventory / scan_blocks / scan_entities / find_nearest / raycast / inspect_block / inspect_container / lookup_recipe / get_world_info |
+| 移动 | go_to / follow / flee / look_at / wait / steer |
+| 方块 | **set_block** / use_block |
+| 实体 | attack / interact_entity / use_item_on |
+| 背包 | equip / unequip / drop / transfer_item / consume / use_item |
+| 容器/生产 | open_container / close_container / craft / smelt / enchant / anvil_combine / trade |
+| 元 | chat / run_command |
+
+(共 37 个。坐标仅作为 `Target.kind='cell'` 逃生或读取信息;模型面以名字/对象引用为主。)
+
 ## 7. tasks / knowledge(L4):编排与进化
 
 - **有界控制词表(不 Turing 完备)**:
