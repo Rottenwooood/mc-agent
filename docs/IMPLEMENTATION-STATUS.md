@@ -49,6 +49,11 @@ scenarios/ tests/{semantics,integration} tools/ docs/
   - **建小结构**:`(4,76,25)-(5,76,26)` 2×2 地板全部 `mangrove_planks`(体素集合差=空);
   - **扰动+局部修复**:`Setup`(另一 actor)破坏 `(4,76,25)`(事件 seq 10,`mangrove_planks→air`),随后 agent **重算缺失集**(`set_difference(box_cells, region(planks))` → 仅该 1 格)并补回(事件 seq 11,`air→mangrove_planks`,`actor=Bot`);最终块恢复、`verify-repair` 通过。agent 用 `run_method` 的**目标条件化**(进入重算、只补缺失)完成,非逐字重放。
   - 观测 Mod 现已**同时记录破坏与放置**(`PlayerBlockBreakEvents` + `BlockItem.place` mixin),故"修复放置"有**独立事件**证据(seq 10 外部破坏 → seq 11 Bot 放置)。
+- **M2.5 感知/寻址返工的门槛(2026-10-09,新工具面,独立验收器)**:真实 LLM 经 MCP 桥(`tools/list` = 40 工具,含 `view`/`scan_blocks`/`relations`/`run_method`)在真实服务器上完成:
+  - **G1 通过**:`scan_blocks{tag:logs}` 取对象句柄 → `run_method` + `members(handle)` 破坏 `(6,74,26)` → `go_to` 拾取;`g1-verifier` 判定 `pass:true`(1 次 Bot 破坏原木,背包 5→6,exit 0)。
+  - **G2 通过**:①挖矿脉——`go_to` 对象句柄(自动掘进到 `(10,53,5)`)+ `run_method members(coal_ore handle)` 挖空 10 格,`verify-mine` pass(`ore_left:0`,煤 4→14);②建造——`run_method` + `area(anchor:'self'/[x,y,z], size)` 目标条件化建 2×2 木板地板 `(6,73,26)-(7,73,27)`,`verify-build` pass(4/4);③外部扰动 + 局部修复——`Setup` 破坏 `(7,73,27)`(seq 54)→ agent `run_method area` 重算缺失集只补 1 格(seq 55),`verify-repair` pass(外部破坏→Bot 补回,exit 0)。
+  - **门槛中发现并修复的真实缺陷**:(a) `parseHandle` 正则拒绝含冒号的标签(所有 `minecraft:*` 句柄失效);(b) `members/surface/nearest` 及对象后置走**不过滤**整块查询(radius 32)超上限→空,改**服务端按 id 过滤**;(c) `scan_blocks match:"any"` 拉全部暴露面在 radius 24 截断,改**分类扫描**(ores/logs/interactables/fluids);(d) `view` 的 `?` 黑雾未实现,`view` 对象 size 与再校验不一致;(e) `area(anchor:'self')` 用浮点玩家坐标生成非整数格,改**取整**。
+  - 已知**瞬态**(非系统性):刚 `go_to` 完仍在移动时立即放置,偶发把方块放到相邻格;静止放置受控复现均正确。
 - 关键根因修复(commit `6b7547f`):**控制令牌不可重入导致的死锁** —— 引擎已用令牌包住动作,而每个动作内部**又**调用一次 `ctx.token.run`,嵌套获取令牌在 60s 守卫超时前一直阻塞 → 表现为 `run_method`/`set_block`/`go_to` 全面超时。令牌改为**同 async 上下文可重入**(`AsyncLocalStorage`),动作立即执行(`set_block` ~100ms、`run_method` ~ms)。
 - 最近提交:`7ad02c5`(docs 动作库)、`c945616`(全量动作库)、`2589559`(Target+全量控制面)、`e097fb1`(resident/bridge)、`bbaccb7`/`e6450ba`/`f501665`/`2fda71c`(M1 各步)、`d327b97`(M0)。
 - G1 过程中发现并修复的真实缺陷:**(a)** 桥与常驻进程的连接在常驻重启后失效 → 桥改为**按需重连**;**(b)** 观测/只读工具被控制令牌阻塞、卡住的动作可永久占用身体 → 读操作改为**不占令牌**,所有动作加**硬超时并在超时后释放控制**,客户端每个操作也加了超时;**(c)** 区域查询在物品上限处**静默截断**导致"最近方块"报错(把 1.25 格的木头顶成 48.5)→ 按方块 id 在服务端过滤并显式处理截断。
@@ -77,7 +82,7 @@ node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
   ```
 
 ## 5. 待办(按设计,不留捷径)
-- **感知与寻址返工(已完成,`world-map-and-composition.md §12`)**:模型面主地址改为**对象句柄 + 罗盘方位**(东南西北+上下,不绑朝向;坐标保留、默认不引导)。新增 **`view`**(近处逐方块、裁剪到含方块的长方体、暴露面字母/内部`#`/黑雾`?`/玩家`@`、罗盘对齐);**`scan_blocks`** 改为**对象聚合**(暴露连通的同类方块 → 句柄 + size + 中心/边缘距离 + 罗盘方位 + touchable/reachable;含可互动/实体/液体;默认半径 24;Mod `exposed_only` 服务端过滤);**删除 `inspect_block`/`scan_component`**,`scan_surface` 并入 `view`,`check_relations` → **`relations`**(兜底);`run_method` 集合改 `members/surface/nearest/area`。工具面共 **40 个**。
+- **感知与寻址返工(已完成并通过 G1/G2 门槛,`world-map-and-composition.md §12`)**:模型面主地址改为**对象句柄 + 罗盘方位**(东南西北+上下,不绑朝向;坐标保留、默认不引导)。新增 **`view`**(近处逐方块、裁剪到含方块的长方体、暴露面字母/内部`#`/黑雾`?`/玩家`@`、罗盘对齐);**`scan_blocks`** 改为**对象聚合**(暴露连通的同类方块 → 句柄 + size + 中心/边缘距离 + 罗盘方位 + touchable/reachable;含可互动/实体/液体;默认半径 24;Mod `exposed_only` 服务端过滤);**删除 `inspect_block`/`scan_component`**,`scan_surface` 并入 `view`,`check_relations` → **`relations`**(兜底);`run_method` 集合改 `members/surface/nearest/area`。工具面共 **40 个**。
 - **M2(完成)**:`world` 通用查询 + 关系 + **表面壳(由常驻进程驱动:2s 事件补丁/跨格平移 + 30s 兜底)** + **两层地图第二层(持久稀疏发现图)**;`execution` **L1 reflex** + **L3 契约引擎**;`tasks` **有界词表执行**;`interfaces` 暴露 **`run_method`** 及**关系/表面感知工具 `scan_component`/`scan_surface`/`check_relations`/`recall`(共 42 工具)**;观测 Mod 记录**破坏 + 放置**。**M2 门槛 G1/G2 均通过**。下一步进入 **M3**(knowledge 方法库/门禁/回退)。`explore` 持续动作与视觉留 M6。
 - **M3**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用词表造。
 - **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;可视化(prismarine-viewer 调试 + headless 出帧)。

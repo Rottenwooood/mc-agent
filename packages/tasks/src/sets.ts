@@ -153,7 +153,7 @@ export async function evalSet(ctx: ActionContext, set: SetExpr, vars: Vars): Pro
       const base = await resolveAnchor(ctx, set.anchor, vars);
       if (!base) return [];
       const off = set.offset ?? [0, 0, 0];
-      const min: Vec3 = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
+      const min: Vec3 = [Math.floor(base[0]) + off[0], Math.floor(base[1]) + off[1], Math.floor(base[2]) + off[2]];
       const max: Vec3 = [min[0] + set.size[0] - 1, min[1] + set.size[1] - 1, min[2] + set.size[2] - 1];
       return cellsInBox({ min, max });
     }
