@@ -11,14 +11,14 @@
     "bridge": "node dist/bridge.js"
   },
   "dependencies": {
+    "@mc-agent/adapters-mineflayer": "workspace:*",
+    "@mc-agent/adapters-telemetry": "workspace:*",
     "@mc-agent/contracts": "workspace:*",
-    "@mc-agent/foundation": "workspace:*",
-    "@mc-agent/world": "workspace:*",
     "@mc-agent/execution": "workspace:*",
+    "@mc-agent/foundation": "workspace:*",
     "@mc-agent/interfaces-mcp": "workspace:*",
     "@mc-agent/knowledge": "workspace:*",
-    "@mc-agent/adapters-telemetry": "workspace:*",
-    "@mc-agent/adapters-mineflayer": "workspace:*",
+    "@mc-agent/world": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1"
   }
 }

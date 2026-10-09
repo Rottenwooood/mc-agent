@@ -10,6 +10,21 @@ import type { ToolDef } from './tool.js';
 
 const compositionRegistry = actionRegistry();
 
+/** Names a secondary action may not take (they belong to primary/management tools). */
+const RESERVED_TOOL_NAMES = new Set<string>([
+  ...ALL_ACTIONS.map((a) => a.contract.name),
+  'run_method',
+  'define_action',
+  'list_actions',
+  'try_action',
+  'activate_action',
+  'rollback_action',
+  'retire_action',
+  'write_skill',
+  'list_skills',
+  'read_skill',
+]);
+
 const runMethodTool: ToolDef = {
   name: 'run_method',
   title: 'run_method',
@@ -75,6 +90,9 @@ function secondaryActionTools(library: ActionLibrary): ToolDef[] {
         ...(args.postconditions ? { postconditions: args.postconditions as Predicate[] } : {}),
         ...(args.invariants ? { invariants: args.invariants as Predicate[] } : {}),
       };
+      if (RESERVED_TOOL_NAMES.has(input.name)) {
+        return mk({ effectStatus: 'fail', reason: 'precondition_failed', reasonDetail: `name ${input.name} is reserved by a primary/management tool` });
+      }
       const v = library.define(input);
       return mk({
         effectStatus: 'pass',
@@ -271,4 +289,35 @@ export function buildTools(opts: BuildToolsOptions = {}): ToolDef[] {
   if (opts.actionLibrary) tools.push(...secondaryActionTools(opts.actionLibrary));
   if (opts.skillLibrary) tools.push(...skillTools(opts.skillLibrary));
   return tools;
+}
+
+/**
+ * The first-class tool for an ACTIVE secondary action: registered into the tool surface so it is
+ * called exactly like a primary action (dynamic registration / tools/list_changed). Returns null
+ * if the action has no active version.
+ */
+export function secondaryActionToolDef(library: ActionLibrary, name: string): ToolDef | null {
+  const rec = library.get(name);
+  if (!rec || rec.activeVersion === null) return null;
+  const v = library.version(name, rec.activeVersion);
+  if (!v) return null;
+  const properties: Record<string, unknown> = {
+    ...(v.method.params ?? {}),
+    budget: { type: 'integer', default: 4096 },
+    budgetMs: { type: 'integer', default: 90000 },
+  };
+  return {
+    name,
+    title: name,
+    description: `${v.method.description ?? `Secondary action ${name}`} (agent-created; active v${v.version})`,
+    inputSchema: { type: 'object', properties, additionalProperties: false },
+    handler: (ctx, args) => {
+      const { budget, budgetMs, ...bindings } = args;
+      return tryAction(ctx, compositionRegistry, library, name, {
+        args: bindings,
+        ...(budget ? { budget: Number(budget) } : {}),
+        ...(budgetMs ? { budgetMs: Number(budgetMs) } : {}),
+      });
+    },
+  };
 }

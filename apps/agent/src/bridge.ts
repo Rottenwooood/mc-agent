@@ -70,6 +70,8 @@ class ResidentClient {
   private readonly pending = new Map<number, Pending>();
   private id = 1;
   private attaching: Promise<void> | null = null;
+  /** Invoked when the resident reports that its tool surface changed (tools/list_changed). */
+  onToolsChanged: (() => void) | null = null;
 
   constructor(private readonly sockPath: string) {}
 
@@ -117,6 +119,8 @@ class ResidentClient {
       if (cb) {
         this.pending.delete(m.id);
         cb.resolve(m);
+      } else if ((m as { op?: string }).op === 'tools_changed') {
+        this.onToolsChanged?.();
       }
     }
   }
@@ -164,7 +168,12 @@ export async function startBridge(): Promise<void> {
   const sockPath = socketPath();
   const client = new ResidentClient(sockPath);
 
-  const server = new Server({ name: 'mc-agent', version: '0.1.0' }, { capabilities: { tools: {} } });
+  const server = new Server({ name: 'mc-agent', version: '0.1.0' }, { capabilities: { tools: { listChanged: true } } });
+
+  // The resident reports tool-surface changes; forward them as MCP tools/list_changed.
+  client.onToolsChanged = () => {
+    void server.sendToolListChanged();
+  };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const r = await client.request('list');

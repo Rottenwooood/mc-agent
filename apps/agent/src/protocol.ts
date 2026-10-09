@@ -47,6 +47,13 @@ export interface ErrRes {
 
 export type Res = ListRes | CallRes | ErrRes;
 
+/** Server-initiated (resident → bridge): the tool list changed; re-list and notify the client. */
+export interface ToolsChangedMsg {
+  op: 'tools_changed';
+}
+
+export type ResidentMsg = Res | ToolsChangedMsg;
+
 export function ensureDirFor(file: string): void {
   // Kept tiny; caller imports fs directly for unlink/listen.
   void path.dirname(file);

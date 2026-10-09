@@ -50,8 +50,8 @@ tests/{semantics,integration,eval}/   tools/   docs/
 | **M2** 通用查询 + 表面壳 + 两层地图 + L1/L3 + 有界词表 | ✅ 完成 | **G2** ✅ |
 | **M2.5** 感知/寻址返工(句柄 + 罗盘 + `view`/`scan_blocks`) | ✅ 完成 | **G1/G2 复验** ✅ |
 | **M3** 二级动作库(在线门禁/net-effect/回退)+ skill 文本层 | ✅ 完成 | **G3** ✅ |
-| **M4** interfaces 动态注册 + `tools/list_changed` + 可视化 | ⏭ 下一步 | G4 |
-| **M5** 实机 benchmark(runner + 独立验收器 + 指标 + 消融)+ scenarios | ⬜ 待办 | GF |
+| **M4** interfaces 动态注册 + `tools/list_changed` + 多会话共享 + 可视化 | ✅ 完成 | **G4** ✅ |
+| **M5** 实机 benchmark(runner + 独立验收器 + 指标 + 消融)+ scenarios | ⏭ 下一步 | GF |
 | **M6** `explore` 持续动作 + 视觉 + 课程 | ⬜ 待办 | 各自 gate |
 
 顺序:M0→M1→M2→M3→M4→M5,前一步 gate 通过才进下一步。
@@ -64,6 +64,7 @@ tests/{semantics,integration,eval}/   tools/   docs/
   - **编排(有界 runner)**:`run_method`(临时组合;有界词表 sequence/for_each/repeat/branch;集合 `members/surface/nearest/area/set_difference`,绝对方框 `region/box_cells` 兜底);**目标条件化**(重算缺失集、只补缺失),终止后置整体判定。
   - **二级动作**:`define_action`/`list_actions`/`try_action`/`activate_action`/`rollback_action`/`retire_action`(agent 造的可调用动作;`try_action`=校验口;在线门禁 + 版本回退)。
   - **skill(文本)**:`write_skill`/`list_skills`/`read_skill`(方法论/踩坑/提醒;不可调用,按需检索注入)。
+  - **动态工具(M4)**:`active` 二级动作在运行时注册为**一等工具**(工具面 = 49 + N),激活/回退/退役时**发 `tools/list_changed`**;`define_action` 拒绝与一级/管理工具同名的动作(避免覆盖)。
 - **L4 二级动作库 + skill 文本层**(`@mc-agent/knowledge`):
   - `ActionLibrary`(二级动作):命名/版本化(`Method` + 在线统计),JSON 持久化(`MCAGENT_ACTIONS`,默认 `<cwd>/.mc-agent/actions.json`,变更自动落盘);状态机 `draft→active→superseded/broken/retired`;**在线门禁**只看真实使用(minUses≥3、passRate≥0.6、最近窗口 5 次≥0.6、net regressions≤repairs),**无 train/val/test**;回归或连续失败→系统标 `rollbackRequired`;`rollback` 回到上一个 `superseded` 并把坏版本标 `broken`。
   - `SkillLibrary`(skill 文本):`SkillNote{name,description,tags,text}`,JSON 持久化(`MCAGENT_SKILLS`);**不可调用、不进工具表**,按需 `read_skill` 注入。
@@ -82,6 +83,7 @@ tests/{semantics,integration,eval}/   tools/   docs/
   - v2 在小 fixture(1 格)上**连续失败 2 次** → 系统标 `rollbackRequired` → `rollback_action`(v2→`broken`,active 回 v1)。
   - skill 文本层:`write_skill` 写方法论 → `read_skill` 按需读取注入。
   - 验收器**独立重算在线门禁**(从原始 uses/pass/recent/net-effect)+ 校验:激活、坏版本 broken、回退存在、active=v1、**online-only(记录里无任何 seed/role 字段)** —— 全部通过。
+- **G4(动态工具 + 多会话 + 可视化)** — 常驻进程把 `active` 二级动作**注册为一等工具**;激活/回退/退役时重新同步工具面并向所有已连桥发 `tools/list_changed`(桥转成 MCP `notifications/tools/list_changed`)。实测:定义 `noop` → 3 次实机试用 → 激活后工具数 **49→50**、客户端收到 **1 次 `list_changed`**、**直接按名字调用**该二级动作成功(与一级动作同级);第二个桥**看到同一工具且共享同一身体**(坐标一致)。可视化:`tools/view.mjs`/`view-up.sh` 输出俯视表面图(终端 ANSI + 彩色 HTML);`prismarine-viewer` 3D 因需原生 `canvas` 暂缓。
 - **门槛中修复的真实缺陷**:`parseHandle` 拒绝含冒号标签(句柄全失效);`members/surface/nearest` 与对象后置走不过滤整块查询超上限(改服务端按 id 过滤);`scan_blocks match:"any"` 截断(改分类扫描);`view` 黑雾未实现、size 口径不一致;`area(anchor:'self')` 浮点生成非整数格(改取整);更早:控制令牌不可重入死锁(commit `6b7547f`,改 `AsyncLocalStorage` 可重入);桥重启后失效(改按需重连);只读工具被令牌阻塞(改不占令牌 + 硬超时)。
 - **已知瞬态(非系统性)**:刚 `go_to` 完仍在移动时立即放置,偶发落到相邻格;静止放置受控复现均正确。
 
@@ -98,6 +100,7 @@ node apps/agent/dist/main-bridge.js      # 薄 MCP 桥(OpenCode 按会话拉起)
 tools/reset-world.sh <seed>              # 按种子重置世界(硬种子隔离:停服/删 world/设 level-seed/重启/等 health)
 node tests/eval/g3-runner.mjs            # G3 全流程(agent 经 MCP)
 node tests/eval/g3-verifier.mjs          # G3 独立验收器
+tools/view-up.sh [--radius 20 --watch]   # 调试可视化:俯视表面图(终端 ANSI + HTML)
 ```
 
 - **MCP 配置**:`~/.config/opencode/opencode.json` 的 `mc-agent` → `command: ["node","/home/c6h4o2/dev/mc-agent/apps/agent/dist/main-bridge.js"], enabled:true`。**本机 OpenCode 未把 mc-agent 注入会话/子会话**(subagent 也拿不到),故实测经 **MCP 桥的 stdio JSON-RPC** 直接驱动(与工具契约同源)。桥连不上 socket 时会 detached 起 resident;多会话共享同一个 bot(避免 duplicate_login)。
@@ -115,7 +118,6 @@ node tests/eval/g3-verifier.mjs          # G3 独立验收器
 
 ## 7. 待办(真正未完成)
 
-- **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;**二级动作晋升为一等工具(启动时/运行时)**;多会话共享一个身体;可视化(prismarine-viewer 调试 + headless 出帧)。**Gate G4**:客户端感知 `list_changed`、多会话共享、可视化可见。
 - **M5(benchmark,独立装置)**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标:完成率/误报率/非 pass 三分/成本 + 消融链)+ `scenarios/`(**固定若干种子** `seeds.txt` + 场景/任务 T1–T4 + fixtures + blueprints)+ `reset-world.sh` 完善 + **一键启动**(`tools/bench.sh`:server + agent + client)。**Gate GF**:在固定种子上报告全部指标 + 消融;**机制有效性的唯一最终判定**。用于后续开发与论文实验。**种子/选型隔离属于此装置,不属于 agent(agent 只在线、无种子)。**
 - **M6**:`explore` 持续动作、视觉(`adapters/vision`)、课程。
 - 补 Mod:`/markers`、`coverage`/每事实版本的完善。

@@ -101,7 +101,7 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 
 ## 9. interfaces/mcp
 - **agent 面 = 两个主感知工具(`view` / `scan_blocks`)+ 有界 runner(`run_method`)+ 二级动作工具(`define_action`/`list_actions`/`try_action`/`activate_action`/`rollback_action`/`retire_action`)+ skill 文本工具(`write_skill`/`list_skills`/`read_skill`)+ 持续动作**;结果自解释;坐标不引导。详见 §12 与 §7。
-- **动态/生成**:二级动作库为**唯一真相源**;`active` 版本在**启动时**(或运行时)注册为**一等工具**,调用方式与一级动作相同;`try_action` 是**校验口**(跑 draft/指定版本)兼弱客户端兼容;**变更发 `tools/list_changed`**。skill 是**文本**,按需检索注入,不进工具表。
+- **动态/生成(已实现,M4)**:二级动作库为**唯一真相源**;`active` 版本由常驻进程注册为**一等工具**(调用方式与一级动作相同);激活/回退/退役时**重新同步工具面并发 `notifications/tools/list_changed`**(resident → 桥 → 客户端);`try_action` 是**校验口**(跑 draft/指定版本)兼弱客户端兼容。skill 是**文本**,按需检索注入,不进工具表。
 
 ## 10. mods/server-observer 契约(只读,`14 §4`)
 `/health`;`/snapshot`(单 tick 原子 + `snapshot_seq` + `coverage` + 每事实 `obs_seq/observed_tick`);`/events?since=<{epoch,seq}>`(`cursor/has_more/reset_required`;**覆盖玩家破坏与放置**,`before→after`,`actor`);**`/tags`(服务端权威的官方方块/实体标签表,供"按标签匹配",不自造分类)**;`/markers`;`isLoaded=false→unknown`;只读 + token;**归因上限 `self_temporal`**。
@@ -115,7 +115,10 @@ MC 1.20.1 · Loader 0.19.5 · Fabric API 0.92.12+1.20.1 · Loom 1.18.2 · Gradle
 - `tests/{semantics,replay,integration}`。
 
 ## 13. 可视化
-`prismarine-viewer` 浏览器(调试)+ headless 出帧(素材/多模态);可叠调试层(路径/目标/对象/断言/安全);默认不进控制回路。
+
+- **调试视图(已实现)**:`tools/view.mjs` / `tools/view-up.sh` —— **零依赖**俯视表面图(直读观测 Mod),输出**终端 ANSI** + **彩色 HTML**(`/tmp/opencode/view.html`);`--watch` 实时刷新。默认不进控制回路。
+- **3D(暂缓,预留接缝)**:`prismarine-viewer` 需要原生 `canvas` 模块(本环境装不上),故延后;接口已留。
+- 可叠调试层(路径/目标/对象/断言/安全);headless 出帧(素材/多模态)留待接入。
 
 ## 14. 实现计划:里程碑与验证门(M0–M6)
 
