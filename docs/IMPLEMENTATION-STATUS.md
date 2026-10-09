@@ -77,7 +77,7 @@ node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
   ```
 
 ## 5. 待办(按设计,不留捷径)
-- **感知与寻址返工(设计定稿 `world-map-and-composition.md §12`,待实现)**:模型面主地址从**坐标**改为**对象句柄 + 罗盘方位**(东南西北+上下,不绑朝向;坐标准许出现在返回、默认不引导)。新增 **`view`**(近处逐方块三维视野,裁剪到含方块的长方体,暴露面/内部/黑雾/玩家元素,罗盘对齐);重做 **`scan_blocks`**(把暴露连通的同类方块**聚成对象**,并含**可互动方块/实体/液体**,带中心/边缘距离、是否够得着、是否可达、罗盘方位;半径默认 ≥24、服务端按 id/标签过滤、低延迟);**删除 `inspect`、`scan_component`**;`scan_surface` 并入 `view`;`relations` 降为兜底;`recall` = 圈外记忆(仅规划、必重校验);`go_to`/`set_block`/`use_block` 目标改**句柄/罗盘方位/最近同类**;`run_method` 集合改 `members/surface/nearest/area/set_difference`。**当前代码仍是坐标式**(见 §3),待按此返工。
+- **感知与寻址返工(已完成,`world-map-and-composition.md §12`)**:模型面主地址改为**对象句柄 + 罗盘方位**(东南西北+上下,不绑朝向;坐标保留、默认不引导)。新增 **`view`**(近处逐方块、裁剪到含方块的长方体、暴露面字母/内部`#`/黑雾`?`/玩家`@`、罗盘对齐);**`scan_blocks`** 改为**对象聚合**(暴露连通的同类方块 → 句柄 + size + 中心/边缘距离 + 罗盘方位 + touchable/reachable;含可互动/实体/液体;默认半径 24;Mod `exposed_only` 服务端过滤);**删除 `inspect_block`/`scan_component`**,`scan_surface` 并入 `view`,`check_relations` → **`relations`**(兜底);`run_method` 集合改 `members/surface/nearest/area`。工具面共 **40 个**。
 - **M2(完成)**:`world` 通用查询 + 关系 + **表面壳(由常驻进程驱动:2s 事件补丁/跨格平移 + 30s 兜底)** + **两层地图第二层(持久稀疏发现图)**;`execution` **L1 reflex** + **L3 契约引擎**;`tasks` **有界词表执行**;`interfaces` 暴露 **`run_method`** 及**关系/表面感知工具 `scan_component`/`scan_surface`/`check_relations`/`recall`(共 42 工具)**;观测 Mod 记录**破坏 + 放置**。**M2 门槛 G1/G2 均通过**。下一步进入 **M3**(knowledge 方法库/门禁/回退)。`explore` 持续动作与视觉留 M6。
 - **M3**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用词表造。
 - **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;可视化(prismarine-viewer 调试 + headless 出帧)。
