@@ -5,6 +5,7 @@
     { "path": "packages/foundation" },
     { "path": "packages/world" },
     { "path": "packages/execution" },
+    { "path": "packages/knowledge" },
     { "path": "packages/tasks" },
     { "path": "packages/adapters/telemetry" },
     { "path": "packages/adapters/mineflayer" },

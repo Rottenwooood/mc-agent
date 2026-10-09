@@ -80,8 +80,9 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 | 容器/生产 | open_container / close_container / craft / smelt / enchant / anvil_combine / trade |
 | 元 | chat / run_command |
 | 编排 | **run_method**(有界词表) |
+| 技能/进化 | **define_skill / list_skills / run_skill / promote_skill / rollback_skill**(`knowledge` 方法库;门禁 + 版本回退) |
 
-(共 40 个;其中 `view`/`scan_blocks` 是两个主感知工具,`relations` 兜底,`recall` 读记忆。)
+(共 45 个;其中 `view`/`scan_blocks` 是两个主感知工具,`relations` 兜底,`recall` 读记忆;`run_method` 有界编排;技能工具由 `knowledge` 库提供。)
 
 ## 7. tasks / knowledge(L4):编排与进化
 
@@ -97,7 +98,7 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 课程(能力边缘)+ 技能晋升/退役 + 实机 benchmark 与评测(见 `docs/eval-benchmark.md`:agent 驱动 MCP、种子隔离、世界重置、独立外部验收器、消融链)。
 
 ## 9. interfaces/mcp
-- **agent 面 = 两个主感知工具(`view` / `scan_blocks`)+ 有界编排(`run_method`)+ 持续动作**;结果自解释;坐标不引导。详见 §12(感知与寻址)。
+- **agent 面 = 两个主感知工具(`view` / `scan_blocks`)+ 有界编排(`run_method`)+ 持续动作 + 技能库工具(`define_skill`/`list_skills`/`run_skill`/`promote_skill`/`rollback_skill`)**;结果自解释;坐标不引导。详见 §12(感知与寻址)与 `knowledge`(L4)。
 - 动态/生成:技能库为源;`run_skill`+`list_skills`;稳定技能启动时晋升一等工具;`define_skill`(在有界词表内生成工具)+ 模块加载器;变更发 `tools/list_changed`。
 
 ## 10. mods/server-observer 契约(只读,`14 §4`)

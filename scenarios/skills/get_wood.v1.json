@@ -1,0 +1,16 @@
+{
+  "name": "get_wood",
+  "description": "Chop the nearest stripped-oak-log and collect it (bounded, target-conditioned).",
+  "steps": [
+    {
+      "op": "for_each",
+      "set": { "op": "nearest", "match": { "block": "minecraft:stripped_oak_log" } },
+      "as": "c",
+      "body": [
+        { "action": "set_block", "args": { "target": { "kind": "cell", "pos": { "from": "c" } }, "block": "minecraft:air", "navigate": true } }
+      ]
+    },
+    { "action": "wait", "args": { "ticks": 40 } }
+  ],
+  "postconditions": [{ "subject": "inv:minecraft:stripped_oak_log", "predicate": ">=", "value": 1 }]
+}

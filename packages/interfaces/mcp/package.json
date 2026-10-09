@@ -15,7 +15,8 @@
     "@mc-agent/contracts": "workspace:*",
     "@mc-agent/world": "workspace:*",
     "@mc-agent/execution": "workspace:*",
-    "@mc-agent/tasks": "workspace:*"
+    "@mc-agent/tasks": "workspace:*",
+    "@mc-agent/knowledge": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

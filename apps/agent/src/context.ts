@@ -9,7 +9,9 @@ import { TelemetryWorldPort } from '@mc-agent/adapters-telemetry';
 import { SurfaceShell, World } from '@mc-agent/world';
 import { ControlToken, ReflexShield } from '@mc-agent/execution';
 import { ToolRegistry, buildTools, type ToolContext } from '@mc-agent/interfaces-mcp';
-import type { EventCursor } from '@mc-agent/contracts';
+import { SkillLibrary } from '@mc-agent/knowledge';
+import type { EventCursor, SeedRole } from '@mc-agent/contracts';
+import { join } from 'node:path';
 
 export interface AppContext {
   username: string;
@@ -20,6 +22,7 @@ export interface AppContext {
   shell: SurfaceShell;
   registry: ToolRegistry;
   toolCtx: ToolContext;
+  library: SkillLibrary;
 }
 
 export interface CreateOptions {
@@ -77,11 +80,16 @@ export async function createContext(opts: CreateOptions = {}): Promise<AppContex
   const token = new ControlToken();
   const shell = new SurfaceShell(world);
   const reflex = process.env.MCAGENT_REFLEX === '0' ? undefined : new ReflexShield(world);
+  const skillsPath = process.env.MCAGENT_SKILLS ?? join(process.cwd(), '.mc-agent', 'skills.json');
+  const library = SkillLibrary.open(skillsPath);
+  const seed = process.env.MCAGENT_SEED
+    ? { value: process.env.MCAGENT_SEED, role: (process.env.MCAGENT_SEED_ROLE as SeedRole | undefined) ?? 'train' }
+    : undefined;
   const registry = new ToolRegistry();
-  const toolCtx: ToolContext = { world, ctrl, token, shell, ...(reflex ? { reflex } : {}) };
-  for (const t of buildTools()) registry.register(t);
+  const toolCtx: ToolContext = { world, ctrl, token, shell, ...(reflex ? { reflex } : {}), ...(seed ? { seed } : {}) };
+  for (const t of buildTools({ library })) registry.register(t);
 
   startMaintenance(world, shell);
 
-  return { username, world, ctrl, token, ...(reflex ? { reflex } : {}), shell, registry, toolCtx };
+  return { username, world, ctrl, token, ...(reflex ? { reflex } : {}), shell, registry, toolCtx, library };
 }

@@ -38,6 +38,9 @@ importers:
       '@mc-agent/interfaces-mcp':
         specifier: workspace:*
         version: link:../../packages/interfaces/mcp
+      '@mc-agent/knowledge':
+        specifier: workspace:*
+        version: link:../../packages/knowledge
       '@mc-agent/world':
         specifier: workspace:*
         version: link:../../packages/world
@@ -103,12 +106,21 @@ importers:
       '@mc-agent/execution':
         specifier: workspace:*
         version: link:../../execution
+      '@mc-agent/knowledge':
+        specifier: workspace:*
+        version: link:../../knowledge
       '@mc-agent/tasks':
         specifier: workspace:*
         version: link:../../tasks
       '@mc-agent/world':
         specifier: workspace:*
         version: link:../../world
+
+  packages/knowledge:
+    dependencies:
+      '@mc-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/tasks:
     dependencies:
@@ -118,6 +130,9 @@ importers:
       '@mc-agent/execution':
         specifier: workspace:*
         version: link:../execution
+      '@mc-agent/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@mc-agent/world':
         specifier: workspace:*
         version: link:../world

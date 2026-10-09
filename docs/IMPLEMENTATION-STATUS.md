@@ -26,6 +26,7 @@ packages/contracts    # 冻结类型:Fact/Predicate/Target/ActionResult/ActionCo
 packages/foundation   # http/errors/config(外部能力最小基础设施)
 packages/world        # World:status/inventory/entities/blockAt/findNearestBlock/query(几何纯函数可测)
 packages/execution    # ControlToken + result 基元 + actions/(全量原子动作,含 Target 解析)
+packages/knowledge    # 方法库(L4):版本/统计/干预式 net-effect/入库门禁(种子隔离)/回退
 packages/interfaces/mcp  # ToolRegistry + buildTools()(把全部动作暴露为工具)
 packages/adapters/telemetry   # WorldPort over 观测 Mod(权威 Fact / unknown)
 packages/adapters/mineflayer  # 全量 ControlPort(玩家合法动作)+ 客户端只读
@@ -54,6 +55,12 @@ scenarios/ tests/{semantics,integration} tools/ docs/
   - **G2 通过**:①挖矿脉——`go_to` 对象句柄(自动掘进到 `(10,53,5)`)+ `run_method members(coal_ore handle)` 挖空 10 格,`verify-mine` pass(`ore_left:0`,煤 4→14);②建造——`run_method` + `area(anchor:'self'/[x,y,z], size)` 目标条件化建 2×2 木板地板 `(6,73,26)-(7,73,27)`,`verify-build` pass(4/4);③外部扰动 + 局部修复——`Setup` 破坏 `(7,73,27)`(seq 54)→ agent `run_method area` 重算缺失集只补 1 格(seq 55),`verify-repair` pass(外部破坏→Bot 补回,exit 0)。
   - **门槛中发现并修复的真实缺陷**:(a) `parseHandle` 正则拒绝含冒号的标签(所有 `minecraft:*` 句柄失效);(b) `members/surface/nearest` 及对象后置走**不过滤**整块查询(radius 32)超上限→空,改**服务端按 id 过滤**;(c) `scan_blocks match:"any"` 拉全部暴露面在 radius 24 截断,改**分类扫描**(ores/logs/interactables/fluids);(d) `view` 的 `?` 黑雾未实现,`view` 对象 size 与再校验不一致;(e) `area(anchor:'self')` 用浮点玩家坐标生成非整数格,改**取整**。
   - 已知**瞬态**(非系统性):刚 `go_to` 完仍在移动时立即放置,偶发把方块放到相邻格;静止放置受控复现均正确。
+- **M3 技能库与入库门禁的门槛 G3(2026-10-09,真实 LLM 经 MCP,独立验收器)**:新增 `@mc-agent/knowledge`(方法库:版本/统计/干预式 net-effect/入库门禁(硬种子隔离)/回退)+ 工具 `define_skill`/`list_skills`/`run_skill`/`promote_skill`/`rollback_skill`(工具面 **45**)+ 种子隔离设施(`scenarios/seeds/{train,val,test}.txt`、`tools/reset-world.sh <seed>`)。
+  - agent 造高层技能 `get_wood`(= `for_each(nearest(stripped_oak_log)) set_block air` + 收尾 `wait`,后置 `inv:stripped_oak_log>=1`),另造 overfit 变体 v2(同步骤、后置 `>=2`)。
+  - 门禁:train(1001)/val(2001,2002)上 v1、v2 均 pass → `promote v1` 判定 `admit`(`train 1/1, val 2/2`);**留出** test(9001)重放 v1 **pass**。
+  - `promote v2`(train+val pass)→ 留出 test 重放 v2 **fail**(fixture 只有 1 格)→ `rollback v2`(`from:2 → to:1`)。
+  - 独立验收器 `tests/eval/g3-verifier.mjs`:**独立重算门禁**(从原始 per-seed 记录)+ 校验不变量,全部通过(exit 0):v1 已入库、v2 已入库后被标 broken、回退存在、`validation` 的 train/val 集合**不含任何 test 种子**(种子隔离)、active 回到 v1。
+  - 运行器 `tests/eval/g3-runner.mjs` 只做:重置世界/放 fixture/经 MCP 调工具/记录;技能内容与判定均非 runner 编码。
 - 关键根因修复(commit `6b7547f`):**控制令牌不可重入导致的死锁** —— 引擎已用令牌包住动作,而每个动作内部**又**调用一次 `ctx.token.run`,嵌套获取令牌在 60s 守卫超时前一直阻塞 → 表现为 `run_method`/`set_block`/`go_to` 全面超时。令牌改为**同 async 上下文可重入**(`AsyncLocalStorage`),动作立即执行(`set_block` ~100ms、`run_method` ~ms)。
 - 最近提交:`7ad02c5`(docs 动作库)、`c945616`(全量动作库)、`2589559`(Target+全量控制面)、`e097fb1`(resident/bridge)、`bbaccb7`/`e6450ba`/`f501665`/`2fda71c`(M1 各步)、`d327b97`(M0)。
 - G1 过程中发现并修复的真实缺陷:**(a)** 桥与常驻进程的连接在常驻重启后失效 → 桥改为**按需重连**;**(b)** 观测/只读工具被控制令牌阻塞、卡住的动作可永久占用身体 → 读操作改为**不占令牌**,所有动作加**硬超时并在超时后释放控制**,客户端每个操作也加了超时;**(c)** 区域查询在物品上限处**静默截断**导致"最近方块"报错(把 1.25 格的木头顶成 48.5)→ 按方块 id 在服务端过滤并显式处理截断。
@@ -68,6 +75,9 @@ pnpm smoke:tool            # 仅 tests/integration(需真实服务器)
 tools/server-up.sh         # 起 Fabric 服务器 + 观测 Mod(HTTP 127.0.0.1:8765)
 node apps/agent/dist/main-resident.js   # 常驻进程(连 bot 'Bot',监听 socket)
 node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
+tools/reset-world.sh <seed>             # 按种子重置世界(硬种子隔离)
+node tests/eval/g3-runner.mjs           # G3:定义→训练/验证→入库→留出重放→回退(agent 经 MCP)
+node tests/eval/g3-verifier.mjs         # G3 独立验收器(独立重算门禁 + 隔离/回退不变量)
 ```
 - OpenCode 的 `~/.config/opencode/opencode.json` 里 `mc-agent` MCP:
   `command: ["node","/home/c6h4o2/dev/mc-agent/apps/agent/dist/main-bridge.js"], enabled:true`。
@@ -84,7 +94,7 @@ node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
 ## 5. 待办(按设计,不留捷径)
 - **感知与寻址返工(已完成并通过 G1/G2 门槛,`world-map-and-composition.md §12`)**:模型面主地址改为**对象句柄 + 罗盘方位**(东南西北+上下,不绑朝向;坐标保留、默认不引导)。新增 **`view`**(近处逐方块、裁剪到含方块的长方体、暴露面字母/内部`#`/黑雾`?`/玩家`@`、罗盘对齐);**`scan_blocks`** 改为**对象聚合**(暴露连通的同类方块 → 句柄 + size + 中心/边缘距离 + 罗盘方位 + touchable/reachable;含可互动/实体/液体;默认半径 24;Mod `exposed_only` 服务端过滤);**删除 `inspect_block`/`scan_component`**,`scan_surface` 并入 `view`,`check_relations` → **`relations`**(兜底);`run_method` 集合改 `members/surface/nearest/area`。工具面共 **40 个**。
 - **M2(完成)**:`world` 通用查询 + 关系 + **表面壳(由常驻进程驱动:2s 事件补丁/跨格平移 + 30s 兜底)** + **两层地图第二层(持久稀疏发现图)**;`execution` **L1 reflex** + **L3 契约引擎**;`tasks` **有界词表执行**;`interfaces` 暴露 **`run_method`** 及**关系/表面感知工具 `scan_component`/`scan_surface`/`check_relations`/`recall`(共 42 工具)**;观测 Mod 记录**破坏 + 放置**。**M2 门槛 G1/G2 均通过**。下一步进入 **M3**(knowledge 方法库/门禁/回退)。`explore` 持续动作与视觉留 M6。
-- **M3**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用词表造。
+- **M3(完成)**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用有界词表造。**门槛 G3 通过**(见 §3)。下一步进入 **M4**。
 - **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;可视化(prismarine-viewer 调试 + headless 出帧)。
 - **M5**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标 + 消融)+ `scenarios/`(T1–T4 + 种子清单 + fixtures + `reset-world.sh`)。
 - **M6**:`explore` 持续动作、视觉(`adapters/vision`)、课程。

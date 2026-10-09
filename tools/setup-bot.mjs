@@ -46,6 +46,24 @@ bot.once('spawn', async () => {
       if (!block) throw new Error('no block at ' + pos);
       await bot.dig(block, true);
       await new Promise((r) => setTimeout(r, 500));
+    } else if (mode === 'fixture' || mode === 'fixture-at') {
+      // Deterministic skill fixture: a pillar of `n` stripped-oak-logs, cleared then placed so
+      // it is exposed and reachable. stripped_oak_log is in #logs but never generates naturally.
+      let x, y, z, n;
+      if (mode === 'fixture-at') {
+        x = Number(rest[0]); y = Number(rest[1]); z = Number(rest[2]); n = Number(rest[3] ?? 2);
+      } else {
+        // relative to Setup
+        const p = bot.entity.position;
+        x = Math.floor(p.x) + 2; y = Math.floor(p.y); z = Math.floor(p.z) + 2; n = Number(rest[0] ?? 2);
+      }
+      bot.chat(`/fill ${x} ${y} ${z} ${x} ${y} ${z + n + 1} air`);
+      await new Promise((r) => setTimeout(r, 400));
+      for (let i = 0; i < n; i++) {
+        bot.chat(`/setblock ${x} ${y} ${z + i} minecraft:stripped_oak_log`);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      await new Promise((r) => setTimeout(r, 400));
     } else {
       throw new Error('unknown mode ' + mode);
     }
