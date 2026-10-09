@@ -22,7 +22,7 @@
 - **可视化**:`prismarine-viewer`(调试 + 素材),默认不进实时控制回路。
 
 ## 1. 概念栈(研究 07)↔ 包
-L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L2 Primitive(`execution/primitives`) / L3 Contract Engine(`execution/contract`+`contracts`) / L4 Skill(`knowledge`+`tasks`) / L5 Meta-Eval(`tasks`+`tests/eval`)。
+L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L2 Primitive(`execution/primitives`) / L3 Contract Engine(`execution/contract`+`contracts`) / L4 二级动作与 skill(`knowledge`+`tasks`) / L5 Meta-Eval(`tasks`+`tests/eval`)。
 
 ## 2. 目录(沿用 `16 §2`)
 `apps/agent` · `packages/{contracts,foundation,world,execution,tasks,knowledge,interfaces/mcp,adapters/{mineflayer,telemetry,vision}}` · `mods/server-observer` · `scenarios` · `tests/{semantics,replay,integration,eval}` · `tools` · `docs`。
@@ -79,27 +79,29 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 | 背包 | equip / unequip / drop / transfer_item / consume / use_item |
 | 容器/生产 | open_container / close_container / craft / smelt / enchant / anvil_combine / trade |
 | 元 | chat / run_command |
-| 编排 | **run_method**(有界词表) |
-| 技能/进化 | **define_skill / list_skills / run_skill / promote_skill / rollback_skill**(`knowledge` 方法库;门禁 + 版本回退) |
+| 编排 | **run_method**(有界词表;临时组合) |
+| 二级动作 | **define_action / list_actions / try_action / activate_action / rollback_action / retire_action**(agent 造的可调用动作;在线门禁 + 版本回退) |
+| 技能(文本) | **write_skill / list_skills / read_skill**(方法论/踩坑/提醒的**文本**;不可调用,按需检索注入) |
 
-(共 45 个;其中 `view`/`scan_blocks` 是两个主感知工具,`relations` 兜底,`recall` 读记忆;`run_method` 有界编排;技能工具由 `knowledge` 库提供。)
+(共 49 个;`view`/`scan_blocks` 两个主感知工具;`run_method` 临时组合;二级动作=agent 生成的可调用组合;skill=文本引导。)`
 
 ## 7. tasks / knowledge(L4):编排与进化
 
-- **有界控制词表(不 Turing 完备)**:
-  - 控制:`sequence([...])`、`for_each(item in SET, body)`、`repeat(body, until=谓词 | count=表达式 | budget)`、`branch(if=谓词, then, else)`;
-  - 集合表达式:`set_difference(D, C)`、`component(seed, match)`、`region(box, filter)`。
-  - 例:`build` = `for_each(cell in set_difference(期望, 当前), replace(cell, 期望[cell]))`;`挖矿脉` = `for_each(b in component(seed, #ores), replace(b, air))`。
+- **有界控制词表(不 Turing 完备)**:控制 `sequence / for_each / repeat / branch`;集合 `members(handle) / surface(handle) / nearest(match) / area(anchor,size,offset) / set_difference`(绝对方框 `region/box_cells` 兜底)。由**有界 runner**(`run_method`)解释执行。
 - **目标条件化**:重算缺失集合,只补缺失;**禁止字面重放**;结束做整体后置。
-- **knowledge 入库门禁**:训练/验证/测试种子隔离;仅"整体成功 + 留出多种子重放通过"入库;干预式 net-effect(repair/regression);门槛+置信;版本回退。
-- **定位**:我们设计**底料 + 编排 + 验证/晋升**;**高层动作由 agent 造**——`build` 只是"agent 可以造出的一个候选",不是我们手搓的终点。
+- **三层概念(定稿 2026-10-09)**:
+  - **一级动作**:内置意图工具(几十个,全领域)。
+  - **二级动作**:**agent 生成的可调用组合**;系统强制生命周期 `draft→active→superseded/broken/retired`;**在线门禁**(只数真实使用:minUses、passRate、最近窗口、net-effect),**无 train/val/test**;agent 只能"提议"(define/activate/rollback),系统按门槛与状态机决定;版本回退到 `superseded`。
+  - **skill**:**纯文本**(方法论/踩坑/提醒,coding-agent 风格),**不可调用、不进工具表**,**按需检索注入**。
+- **兜底(失败恢复)**:局部修复(目标条件化,有界次数)→ 版本回退 → 交还 LLM 用一级动作重规划;不是"换调用方式"。
+- **定位**:底料 + 编排 + 验证/晋升;**高层动作由 agent 造**(二级动作);skill 是沉淀下来的方法论文本。
 
 ## 8. L5 Meta / Eval
 课程(能力边缘)+ 技能晋升/退役 + 实机 benchmark 与评测(见 `docs/eval-benchmark.md`:agent 驱动 MCP、种子隔离、世界重置、独立外部验收器、消融链)。
 
 ## 9. interfaces/mcp
-- **agent 面 = 两个主感知工具(`view` / `scan_blocks`)+ 有界编排(`run_method`)+ 持续动作 + 技能库工具(`define_skill`/`list_skills`/`run_skill`/`promote_skill`/`rollback_skill`)**;结果自解释;坐标不引导。详见 §12(感知与寻址)与 `knowledge`(L4)。
-- 动态/生成:技能库为源;`run_skill`+`list_skills`;稳定技能启动时晋升一等工具;`define_skill`(在有界词表内生成工具)+ 模块加载器;变更发 `tools/list_changed`。
+- **agent 面 = 两个主感知工具(`view` / `scan_blocks`)+ 有界 runner(`run_method`)+ 二级动作工具(`define_action`/`list_actions`/`try_action`/`activate_action`/`rollback_action`/`retire_action`)+ skill 文本工具(`write_skill`/`list_skills`/`read_skill`)+ 持续动作**;结果自解释;坐标不引导。详见 §12 与 §7。
+- **动态/生成**:二级动作库为**唯一真相源**;`active` 版本在**启动时**(或运行时)注册为**一等工具**,调用方式与一级动作相同;`try_action` 是**校验口**(跑 draft/指定版本)兼弱客户端兼容;**变更发 `tools/list_changed`**。skill 是**文本**,按需检索注入,不进工具表。
 
 ## 10. mods/server-observer 契约(只读,`14 §4`)
 `/health`;`/snapshot`(单 tick 原子 + `snapshot_seq` + `coverage` + 每事实 `obs_seq/observed_tick`);`/events?since=<{epoch,seq}>`(`cursor/has_more/reset_required`;**覆盖玩家破坏与放置**,`before→after`,`actor`);**`/tags`(服务端权威的官方方块/实体标签表,供"按标签匹配",不自造分类)**;`/markers`;`isLoaded=false→unknown`;只读 + token;**归因上限 `self_temporal`**。
@@ -124,7 +126,7 @@ MC 1.20.1 · Loader 0.19.5 · Fabric API 0.92.12+1.20.1 · Loom 1.18.2 · Gradle
 | **M0** | workspace + `contracts` + 纯函数单测 | 无(纯基础设施,**不称项目完成**) |
 | **M1** | Mod 契约(health/snapshot/events)、telemetry、mineflayer 控制、world(事实+引用+最小关系+基础表面壳)、execution(令牌+`replace`+单点后置三态+最小 L1)、interfaces/mcp(最小面)、apps(常驻+薄桥) | **G1**:agent 经 MCP 在真实 MC 完成"砍 1 根原木入手",独立验收通过 |
 | **M2** | world(通用查询/多层表面图/两层地图)、execution(完整 L1 + L2 少量原语 + L3 因果 diff/整体后置)、tasks(有界词表) | **G2**:agent 完成"挖矿脉 + 建小结构",扰动下出现三态与局部修复,独立验收通过 |
-| **M3** | knowledge(方法库/版本/统计 + net-effect + 入库门禁 + 回退) | **G3**:agent 自己造高层动作 → 训练/验证验证 → 入库 → 留出种子重放通过 → 坏则回退 |
+| **M3** | knowledge(二级动作库:版本/统计/在线门禁/net-effect/回退 + skill 文本层) | **G3**:agent 造二级动作 → 实机试用 → 在线门禁激活 → 版本回归 → 回退(无种子) |
 | **M4** | interfaces/mcp 全量(动态/`list_changed`)、apps 全量、可视化 | **G4**:多会话共享一个身体、客户端感知 `list_changed`、可视化可见 |
 | **M5** | tests/eval(agent 驱动 runner + 独立验收器 + 指标 + 消融)、scenarios(T1–T4 + 种子隔离 + fixtures + reset-world) | **GF**:完整 benchmark(test 种子)报告全部指标 + 消融;**机制有效性的唯一最终判定** |
 | **M6** | `explore` 持续动作、视觉、课程 | 各自单独 gate(按需) |

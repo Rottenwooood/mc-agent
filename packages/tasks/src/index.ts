@@ -4,4 +4,4 @@ export * from './args.js';
 export * from './sets.js';
 export * from './predicate.js';
 export * from './executor.js';
-export * from './skill.js';
+export * from './secondaryAction.js';

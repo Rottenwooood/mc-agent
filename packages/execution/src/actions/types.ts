@@ -1,7 +1,7 @@
 // Atomic action library types. Every action is a declared contract + a real handler;
 // results are self-explaining ActionResults judged on world evidence.
 
-import type { ActionContract, ActionResult, ControlPort, JsonSchema, SeedRole } from '@mc-agent/contracts';
+import type { ActionContract, ActionResult, ControlPort, JsonSchema } from '@mc-agent/contracts';
 import type { SurfaceShell, World } from '@mc-agent/world';
 import type { ControlToken } from '../token.js';
 import type { ReflexShield } from '../reflex.js';
@@ -15,8 +15,6 @@ export interface ActionContext {
   reflex?: ReflexShield;
   /** Locally maintained surface shell (present when the resident drives it). */
   shell?: SurfaceShell;
-  /** The world seed + role this session is bound to (drives the skill-library gate). */
-  seed?: { value: string; role: SeedRole };
 }
 
 export interface AtomicAction {

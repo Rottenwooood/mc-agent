@@ -9,8 +9,8 @@ import { TelemetryWorldPort } from '@mc-agent/adapters-telemetry';
 import { SurfaceShell, World } from '@mc-agent/world';
 import { ControlToken, ReflexShield } from '@mc-agent/execution';
 import { ToolRegistry, buildTools, type ToolContext } from '@mc-agent/interfaces-mcp';
-import { SkillLibrary } from '@mc-agent/knowledge';
-import type { EventCursor, SeedRole } from '@mc-agent/contracts';
+import { ActionLibrary, SkillLibrary } from '@mc-agent/knowledge';
+import type { EventCursor } from '@mc-agent/contracts';
 import { join } from 'node:path';
 
 export interface AppContext {
@@ -22,7 +22,8 @@ export interface AppContext {
   shell: SurfaceShell;
   registry: ToolRegistry;
   toolCtx: ToolContext;
-  library: SkillLibrary;
+  actionLibrary: ActionLibrary;
+  skillLibrary: SkillLibrary;
 }
 
 export interface CreateOptions {
@@ -80,16 +81,15 @@ export async function createContext(opts: CreateOptions = {}): Promise<AppContex
   const token = new ControlToken();
   const shell = new SurfaceShell(world);
   const reflex = process.env.MCAGENT_REFLEX === '0' ? undefined : new ReflexShield(world);
+  const actionsPath = process.env.MCAGENT_ACTIONS ?? join(process.cwd(), '.mc-agent', 'actions.json');
   const skillsPath = process.env.MCAGENT_SKILLS ?? join(process.cwd(), '.mc-agent', 'skills.json');
-  const library = SkillLibrary.open(skillsPath);
-  const seed = process.env.MCAGENT_SEED
-    ? { value: process.env.MCAGENT_SEED, role: (process.env.MCAGENT_SEED_ROLE as SeedRole | undefined) ?? 'train' }
-    : undefined;
+  const actionLibrary = ActionLibrary.load(actionsPath);
+  const skillLibrary = SkillLibrary.load(skillsPath);
   const registry = new ToolRegistry();
-  const toolCtx: ToolContext = { world, ctrl, token, shell, ...(reflex ? { reflex } : {}), ...(seed ? { seed } : {}) };
-  for (const t of buildTools({ library })) registry.register(t);
+  const toolCtx: ToolContext = { world, ctrl, token, shell, ...(reflex ? { reflex } : {}) };
+  for (const t of buildTools({ actionLibrary, skillLibrary })) registry.register(t);
 
   startMaintenance(world, shell);
 
-  return { username, world, ctrl, token, ...(reflex ? { reflex } : {}), shell, registry, toolCtx, library };
+  return { username, world, ctrl, token, ...(reflex ? { reflex } : {}), shell, registry, toolCtx, actionLibrary, skillLibrary };
 }

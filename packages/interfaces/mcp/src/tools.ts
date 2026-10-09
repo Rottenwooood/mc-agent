@@ -1,10 +1,11 @@
-// The model-facing tool surface = every atomic action across all domains + the bounded
-// composition executor + (when a skill library is present) the skill library tools.
+// The model-facing tool surface = every atomic (primary) action across all domains + the
+// bounded composition executor + (when a library is present) the secondary-action lifecycle
+// tools and the skill (text) tools.
 
-import type { Predicate, Step, SkillDefinitionInput } from '@mc-agent/contracts';
+import type { Predicate, Step, SecondaryActionDefinitionInput } from '@mc-agent/contracts';
 import { mk, ALL_ACTIONS, actionRegistry, executeAction } from '@mc-agent/execution';
-import { runMethod, runSkill } from '@mc-agent/tasks';
-import type { SkillLibrary } from '@mc-agent/knowledge';
+import { runMethod, tryAction } from '@mc-agent/tasks';
+import type { ActionLibrary, SkillLibrary } from '@mc-agent/knowledge';
 import type { ToolDef } from './tool.js';
 
 const compositionRegistry = actionRegistry();
@@ -13,7 +14,7 @@ const runMethodTool: ToolDef = {
   name: 'run_method',
   title: 'run_method',
   description:
-    'Execute a bounded composed method: declared steps over the atomic actions. Control ops: sequence/for_each/repeat/branch. Set exprs: members(handle) / surface(handle) / nearest(match) / area(anchor,size,offset) / set_difference (region/box_cells kept as an unguided fallback). Targets may be object handles (from view/scan_blocks), compass directions, or nearest-block. Sets are recomputed fresh (fill only what is missing); the whole run is judged by its terminal postconditions (block@, inv:, self., entity#, and object handles obj:/ent:). Result is a self-explaining aggregate with subResults.',
+    'Execute a bounded composed method: declared steps over the atomic actions. Control ops: sequence/for_each/repeat/branch. Set exprs: members(handle) / surface(handle) / nearest(match) / area(anchor,size,offset) / set_difference (region/box_cells kept as an unguided fallback). Targets may be object handles (from view/scan_blocks), compass directions, or nearest-block. Sets are recomputed fresh (fill only what is missing); the whole run is judged by its terminal postconditions (block@, inv:, self., entity#, and object handles obj:/ent:). This is the ad-hoc (temporary) composition path; promote a good one with define_action.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -44,16 +45,16 @@ const runMethodTool: ToolDef = {
     ),
 };
 
-function skillTools(library: SkillLibrary): ToolDef[] {
-  const defineSkill: ToolDef = {
-    name: 'define_skill',
-    title: 'define_skill',
+function secondaryActionTools(library: ActionLibrary): ToolDef[] {
+  const defineAction: ToolDef = {
+    name: 'define_action',
+    title: 'define_action',
     description:
-      'Register a reusable high-level skill as a versioned method in the library (bounded vocabulary only: the same steps as run_method, plus optional preconditions/postconditions). It starts as a draft; it is promoted to active only after it passes the admission gate on train+val seeds. Returns the skill name and version.',
+      'Register a new version of a secondary action (a reusable, CALLABLE composition over the bounded vocabulary). It starts as a draft; it is activated only after the online gate (real uses, pass rate, recent window) passes. Never edits an active version in place — it creates a new version.',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Stable skill name, e.g. chop_log' },
+        name: { type: 'string', description: 'Stable action name, e.g. get_wood' },
         description: { type: 'string' },
         params: { type: 'object', description: 'Declared parameter schema (informational)' },
         preconditions: { type: 'array', items: { type: 'object' } },
@@ -65,11 +66,11 @@ function skillTools(library: SkillLibrary): ToolDef[] {
       additionalProperties: false,
     },
     handler: async (_ctx, args) => {
-      const input: SkillDefinitionInput = {
+      const input: SecondaryActionDefinitionInput = {
         name: String(args.name),
         steps: args.steps as Step[],
         ...(args.description ? { description: String(args.description) } : {}),
-        ...(args.params ? { params: args.params as SkillDefinitionInput['params'] } : {}),
+        ...(args.params ? { params: args.params as SecondaryActionDefinitionInput['params'] } : {}),
         ...(args.preconditions ? { preconditions: args.preconditions as Predicate[] } : {}),
         ...(args.postconditions ? { postconditions: args.postconditions as Predicate[] } : {}),
         ...(args.invariants ? { invariants: args.invariants as Predicate[] } : {}),
@@ -78,17 +79,17 @@ function skillTools(library: SkillLibrary): ToolDef[] {
       return mk({
         effectStatus: 'pass',
         controlStatus: 'completed',
-        data: { name: input.name, version: v.version, status: v.method.status },
-        evidence: [{ claim: 'skill_defined', source: 'observed' }],
+        data: { name: input.name, version: v.version, status: v.status },
+        evidence: [{ claim: 'action_defined', source: 'observed' }],
       });
     },
   };
 
-  const listSkills: ToolDef = {
-    name: 'list_skills',
-    title: 'list_skills',
+  const listActions: ToolDef = {
+    name: 'list_actions',
+    title: 'list_actions',
     description:
-      'List skills in the library (name, description, active version, status, stats, params). Use this to discover reusable methods; run one with run_skill.',
+      'List secondary actions (name, description, active version, status, uses, pass rate, recent pass rate, whether a rollback is required, params). Discover reusable actions; run one with try_action.',
     inputSchema: {
       type: 'object',
       properties: { query: { type: 'string', description: 'Optional substring filter on name/description' } },
@@ -97,22 +98,22 @@ function skillTools(library: SkillLibrary): ToolDef[] {
     handler: async (_ctx, args) => {
       const q = args.query ? String(args.query).toLowerCase() : '';
       const all = library.summary();
-      const skills = q ? all.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)) : all;
-      return mk({ effectStatus: 'pass', controlStatus: 'completed', data: { count: skills.length, skills } });
+      const actions = q ? all.filter((a) => a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)) : all;
+      return mk({ effectStatus: 'pass', controlStatus: 'completed', data: { count: actions.length, actions } });
     },
   };
 
-  const runSkillTool: ToolDef = {
-    name: 'run_skill',
-    title: 'run_skill',
+  const tryActionTool: ToolDef = {
+    name: 'try_action',
+    title: 'try_action',
     description:
-      'Run the active version of a stored skill by name. The skill executes as a bounded method and is judged by its terminal postconditions; the outcome is recorded into the library (with the current world seed/role) for the promotion gate.',
+      'Run a secondary action by name (active version, or a specific version to validate a draft). Executes as a bounded method, judged by its terminal postconditions; the online outcome is recorded into the library for the activation gate.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string' },
         version: { type: 'integer', description: 'Run a specific version (to validate a draft); default: the active version' },
-        args: { type: 'object', description: 'Argument bindings for the skill steps' },
+        args: { type: 'object', description: 'Argument bindings for the action steps' },
         budget: { type: 'integer', default: 4096 },
         budgetMs: { type: 'integer', default: 90000 },
       },
@@ -120,7 +121,7 @@ function skillTools(library: SkillLibrary): ToolDef[] {
       additionalProperties: false,
     },
     handler: (ctx, args) =>
-      runSkill(ctx, compositionRegistry, library, String(args.name), {
+      tryAction(ctx, compositionRegistry, library, String(args.name), {
         ...(args.version !== undefined ? { version: Number(args.version) } : {}),
         ...(args.args ? { args: args.args as Record<string, unknown> } : {}),
         ...(args.budget ? { budget: Number(args.budget) } : {}),
@@ -128,11 +129,11 @@ function skillTools(library: SkillLibrary): ToolDef[] {
       }),
   };
 
-  const promoteSkill: ToolDef = {
-    name: 'promote_skill',
-    title: 'promote_skill',
+  const activateAction: ToolDef = {
+    name: 'activate_action',
+    title: 'activate_action',
     description:
-      'Ask the admission gate to promote a skill version. The gate counts only train+val seeds (test seeds never influence admission); the version is promoted only if it meets the thresholds. Returns the decision.',
+      'Ask the online gate to activate a secondary-action version. The gate counts real uses only (min uses, pass rate, recent window, no net regressions); it activates only if it passes. Returns the decision.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string' }, version: { type: 'integer', description: 'Default: the newest version' } },
@@ -142,24 +143,24 @@ function skillTools(library: SkillLibrary): ToolDef[] {
     handler: async (_ctx, args) => {
       const name = String(args.name);
       const rec = library.get(name);
-      if (!rec) return mk({ effectStatus: 'unobservable', reason: 'precondition_failed', reasonDetail: `unknown skill ${name}` });
+      if (!rec) return mk({ effectStatus: 'unobservable', reason: 'precondition_failed', reasonDetail: `unknown action ${name}` });
       const version = args.version ? Number(args.version) : rec.versions[rec.versions.length - 1]!.version;
-      const d = library.promote(name, version);
+      const d = library.activate(name, version);
       return mk({
-        effectStatus: d.admit ? 'pass' : 'fail',
+        effectStatus: d.activate ? 'pass' : 'fail',
         controlStatus: 'completed',
-        reason: d.admit ? null : 'effect_not_observed',
+        reason: d.activate ? null : 'effect_not_observed',
         data: d,
-        evidence: [{ claim: 'promotion_decision', source: 'observed' }],
+        evidence: [{ claim: 'activation_decision', source: 'observed' }],
       });
     },
   };
 
-  const rollbackSkill: ToolDef = {
-    name: 'rollback_skill',
-    title: 'rollback_skill',
+  const rollbackAction: ToolDef = {
+    name: 'rollback_action',
+    title: 'rollback_action',
     description:
-      'Roll a skill back to its previous verified version (or to no active version), marking the current one broken. Use when the active skill proves bad on a held-out seed.',
+      'Roll a secondary action back to its previous superseded version (or to no active version), marking the current one broken. Use when the active version regresses or fails repeatedly.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string' }, reason: { type: 'string' } },
@@ -174,17 +175,88 @@ function skillTools(library: SkillLibrary): ToolDef[] {
         effectStatus: ok ? 'pass' : 'fail',
         controlStatus: 'completed',
         data: { name, from: before, to: library.active(name)?.version ?? null },
-        evidence: [{ claim: 'skill_rollback', source: 'observed' }],
+        evidence: [{ claim: 'action_rollback', source: 'observed' }],
       });
     },
   };
 
-  return [defineSkill, listSkills, runSkillTool, promoteSkill, rollbackSkill];
+  const retireAction: ToolDef = {
+    name: 'retire_action',
+    title: 'retire_action',
+    description: 'Retire a secondary action (its active version becomes retired; it is no longer default).',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, reason: { type: 'string' } }, required: ['name'], additionalProperties: false },
+    handler: async (_ctx, args) => {
+      const ok = library.retire(String(args.name), String(args.reason ?? 'retired'));
+      return mk({ effectStatus: ok ? 'pass' : 'fail', controlStatus: 'completed', evidence: [{ claim: 'action_retired', source: 'observed' }] });
+    },
+  };
+
+  return [defineAction, listActions, tryActionTool, activateAction, rollbackAction, retireAction];
+}
+
+function skillTools(library: SkillLibrary): ToolDef[] {
+  const writeSkill: ToolDef = {
+    name: 'write_skill',
+    title: 'write_skill',
+    description:
+      'Write or update a skill: a TEXT note (methodology, pitfalls, reminders) in the coding-agent style. Skills are guidance, NOT callable tools; retrieve them on demand with read_skill.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+        text: { type: 'string', description: 'The methodology / pitfalls / reminders.' },
+      },
+      required: ['name', 'text'],
+      additionalProperties: false,
+    },
+    handler: async (_ctx, args) => {
+      const n = library.write({
+        name: String(args.name),
+        text: String(args.text),
+        ...(args.description ? { description: String(args.description) } : {}),
+        ...(args.tags ? { tags: args.tags as string[] } : {}),
+      });
+      return mk({ effectStatus: 'pass', controlStatus: 'completed', data: { name: n.name, updated: n.updated } });
+    },
+  };
+
+  const listSkills: ToolDef = {
+    name: 'list_skills',
+    title: 'list_skills',
+    description: 'List skill notes (name, description, tags). On-demand retrieval: read the relevant one with read_skill.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional substring filter' } }, additionalProperties: false },
+    handler: async (_ctx, args) => {
+      const notes = library.search(args.query ? String(args.query) : undefined);
+      return mk({
+        effectStatus: 'pass',
+        controlStatus: 'completed',
+        data: { count: notes.length, skills: notes.map((n) => ({ name: n.name, description: n.description, tags: n.tags })) },
+      });
+    },
+  };
+
+  const readSkill: ToolDef = {
+    name: 'read_skill',
+    title: 'read_skill',
+    description: 'Read a skill note’s full text (methodology / pitfalls / reminders) to inject it into context.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false },
+    handler: async (_ctx, args) => {
+      const n = library.get(String(args.name));
+      if (!n) return mk({ effectStatus: 'unobservable', reason: 'precondition_failed', reasonDetail: `unknown skill ${args.name}` });
+      return mk({ effectStatus: 'pass', controlStatus: 'completed', data: n });
+    },
+  };
+
+  return [writeSkill, listSkills, readSkill];
 }
 
 export interface BuildToolsOptions {
-  /** When present, exposes define_skill / list_skills / run_skill. */
-  library?: SkillLibrary;
+  /** When present, exposes the secondary-action lifecycle tools. */
+  actionLibrary?: ActionLibrary;
+  /** When present, exposes the skill (text) tools. */
+  skillLibrary?: SkillLibrary;
 }
 
 export function buildTools(opts: BuildToolsOptions = {}): ToolDef[] {
@@ -196,6 +268,7 @@ export function buildTools(opts: BuildToolsOptions = {}): ToolDef[] {
     handler: (ctx, args) => executeAction(ctx, a, args),
   }));
   tools.push(runMethodTool);
-  if (opts.library) tools.push(...skillTools(opts.library));
+  if (opts.actionLibrary) tools.push(...secondaryActionTools(opts.actionLibrary));
+  if (opts.skillLibrary) tools.push(...skillTools(opts.skillLibrary));
   return tools;
 }

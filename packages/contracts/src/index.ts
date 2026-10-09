@@ -6,6 +6,7 @@ export * from './target.js';
 export * from './result.js';
 export * from './contract.js';
 export * from './method.js';
+export * from './secondary-action.js';
 export * from './skill.js';
 export * from './task.js';
 export * from './world.js';

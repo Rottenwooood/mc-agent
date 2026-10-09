@@ -1,9 +1,10 @@
-// @mc-agent/knowledge — the skill library (methods + promotion gate + rollback). L4.
+// @mc-agent/knowledge — L4: the secondary-action library (callable, versioned) and the skill
+// text library (methodology/pitfalls, not callable).
 
 export {
-  SkillLibrary,
+  ActionLibrary,
   DEFAULT_THRESHOLDS,
-  seedRoles,
-  type SkillLibraryJSON,
-  type SkillSummary,
-} from './library.js';
+  type ActionLibraryJSON,
+  type SecondaryActionSummary,
+} from './actionLibrary.js';
+export { SkillLibrary, type SkillLibraryJSON, type SkillInput } from './skillLibrary.js';

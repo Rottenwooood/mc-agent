@@ -26,11 +26,10 @@
 
 ## 2. 世界与种子(隔离)
 
-- **固定**:MC 1.20.1 + 固定 Mod 版本 + 固定种子集合 + 固定任务套件。
-- **种子三分(硬隔离)**:
-  - `scenarios/seeds/train.txt` —— 允许试错、生成技能;
-  - `scenarios/seeds/val.txt` —— 决定**技能是否入库/选型**;
-  - `scenarios/seeds/test.txt` —— **只在最终报告使用,绝不参与任何选择/调参/入库**。
+- **固定**:MC 1.20.1 + 固定 Mod 版本 + **固定的一组种子** + 固定任务套件。
+- **种子**:`scenarios/seeds.txt` —— 一组固定的世界种子,每个 case = 任务 × 种子。
+  - 种子/重置属于 **benchmark 装置**;**agent 只在线运行,不认识种子**(无 train/val/test 概念)。
+  - 若论文实验需要"选型 vs 最终报告"隔离,在此装置内另设两套种子清单即可(与 agent 无关)。
 - **世界重置**:`tools/reset-world.sh <seed> [fixture]`
   - 从**干净世界模板**按种子重建(存档复制或重新生成);
   - 可选加载 task fixture(预置地形/结构/容器/怪物);
@@ -89,7 +88,7 @@ for case in cases(task × seed × config):
 - 任务完成率(独立验收器)。
 - **误报成功率**(头号):系统报 `pass` 但验收判 `fail`;分母 = 所有系统报 `pass` 的实例(写明按任务/按尝试)。
 - 非 pass **拆开**:`confirmed_fail`(有证据没达成)/ `insufficient_evidence`(真正的弃权)/ `blocked`(没执行)。
-- 技能库污染率:入库技能在留出种子上重放失败比例。
+- 二级动作污染率:已激活的二级动作在后续在线使用中**回归/连续失败**的比例(系统以 `rollbackRequired` 标记)。
 - repair/regression:同一实例 with/without 技能的净效果。
 - **安全停止延迟**:危险出现 → 控制停止的 tick 数。
 - 恢复成功率:中断后重新核对并完成的比例。

@@ -1,4 +1,6 @@
-// Methods / skills: bounded composition vocabulary + provenance/validation (framework §4.5, §7).
+// Methods: the bounded composition vocabulary + provenance (framework §4.5, §7).
+// A Method is the executable definition only; lifecycle (status/stats/validation) lives on the
+// secondary-action version that owns it (see secondary-action.ts).
 
 import type { JsonSchema } from './contract.js';
 import type { Box, Vec3 } from './fact.js';
@@ -53,22 +55,6 @@ export interface FailurePolicy {
   onFail: 'hand_back';
 }
 
-export const METHOD_STATUSES = ['draft', 'verified', 'broken', 'deprecated'] as const;
-export type MethodStatus = (typeof METHOD_STATUSES)[number];
-
-export interface MethodStats {
-  success: number;
-  fail: number;
-  lastStatus: string | null;
-  lastAt: string | null;
-}
-
-export interface Validation {
-  seeds: string[];
-  /** Intervention net-effect: outcome with vs without the method (repair/regression). */
-  interventions?: { with: number; without: number };
-}
-
 export interface Provenance {
   source: 'human' | 'llm' | 'adaptation';
   created: string;
@@ -86,17 +72,7 @@ export interface Method {
   invariants: Predicate[];
   steps: Step[];
   failurePolicy: FailurePolicy;
-  stats: MethodStats;
-  status: MethodStatus;
-  validation?: Validation;
   provenance: Provenance;
-}
-
-export interface MethodStore {
-  get(id: string): Method | undefined;
-  list(): Method[];
-  put(method: Method): void;
-  remove(id: string): boolean;
 }
 
 /** A resolved world coordinate (used internally; not exposed to the model as an action arg). */
