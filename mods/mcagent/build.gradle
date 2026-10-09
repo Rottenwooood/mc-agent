@@ -2,6 +2,21 @@ plugins {
 	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
 }
 
+// One mod, two environments:
+//   main   -> server-side read-only observation (HTTP 8765)
+//   client -> local-player control in a real client (HTTP 8766)
+// splitEnvironmentSourceSets keeps net.minecraft.client.* off the dedicated-server classpath.
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"mcagent" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings loom.officialMojangMappings()
@@ -19,6 +34,7 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 17
+	it.options.compilerArgs << '-Xlint:deprecation'
 }
 
 java {

@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 SEED="$1"
 [ -n "$SEED" ] || { echo "usage: reset-world.sh <seed>" >&2; exit 64; }
 
-RUN="mods/server-observer/run"
+RUN="mods/mcagent/run"
 
 echo "reset-world: stopping server..."
 # The bracket trick avoids pkill matching its own invoking shell's command line.

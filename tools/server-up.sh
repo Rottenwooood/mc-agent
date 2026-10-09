@@ -3,5 +3,5 @@
 set -e
 cd "$(dirname "$0")/.."
 . ./env.sh
-cd mods/server-observer
+cd mods/mcagent
 exec ./gradlew runServer --no-daemon --console=plain

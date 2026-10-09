@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "mcagent",
+	"version": "${version}",
+	"name": "MineAgent",
+	"description": "Embodied agent bridge: server-side read-only observation (HTTP 8765) and client-side local-player control (HTTP 8766) behind one mod.",
+	"authors": [
+		"mc-agent"
+	],
+	"license": "MIT",
+	"environment": "*",
+	"mixins": [
+		"mcagent.mixins.json",
+		{
+			"config": "mcagent.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"entrypoints": {
+		"main": [
+			"com.mcagent.observer.ObserverMod"
+		],
+		"client": [
+			"com.mcagent.client.ClientControllerMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*"
+	}
+}
