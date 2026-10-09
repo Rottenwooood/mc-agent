@@ -47,8 +47,8 @@ scenarios/ tests/{semantics,integration} tools/ docs/
 - **Gate G2 通过(2026-10-08)**:真实 LLM 经 MCP 在真实服务器上**自主**完成"挖矿脉 + 建小结构",并在**外部扰动**下**局部修复**,由独立验收器判定(脚本 `tests/eval/g2-verifier.mjs`):
   - **挖矿脉**:`coal_ore` 箱全部清空(独立快照 `ore_left=0`),背包煤 **0→4**(真实挖掘,非 `/give`);
   - **建小结构**:`(4,76,25)-(5,76,26)` 2×2 地板全部 `mangrove_planks`(体素集合差=空);
-  - **扰动+局部修复**:`Setup`(另一 actor)破坏 `(4,76,25)`(事件 seq 37,`mangrove_planks→air`),随后 agent **重算缺失集**(`set_difference(box_cells, region(planks))` → 仅该 1 格)并补回;最终块恢复、`verify-repair` 通过。agent 用 `run_method` 的**目标条件化**(进入重算、只补缺失)完成,非逐字重放。
-  - Mod 限制(待补):观测 Mod 目前只记录玩家**破坏**(`PlayerBlockBreakEvents`),不记录**放置**,故"修复放置"无独立事件,验收以"外部破坏事件 + 最终状态恢复"为准。
+  - **扰动+局部修复**:`Setup`(另一 actor)破坏 `(4,76,25)`(事件 seq 10,`mangrove_planks→air`),随后 agent **重算缺失集**(`set_difference(box_cells, region(planks))` → 仅该 1 格)并补回(事件 seq 11,`air→mangrove_planks`,`actor=Bot`);最终块恢复、`verify-repair` 通过。agent 用 `run_method` 的**目标条件化**(进入重算、只补缺失)完成,非逐字重放。
+  - 观测 Mod 现已**同时记录破坏与放置**(`PlayerBlockBreakEvents` + `BlockItem.place` mixin),故"修复放置"有**独立事件**证据(seq 10 外部破坏 → seq 11 Bot 放置)。
 - 关键根因修复(commit `6b7547f`):**控制令牌不可重入导致的死锁** —— 引擎已用令牌包住动作,而每个动作内部**又**调用一次 `ctx.token.run`,嵌套获取令牌在 60s 守卫超时前一直阻塞 → 表现为 `run_method`/`set_block`/`go_to` 全面超时。令牌改为**同 async 上下文可重入**(`AsyncLocalStorage`),动作立即执行(`set_block` ~100ms、`run_method` ~ms)。
 - 最近提交:`7ad02c5`(docs 动作库)、`c945616`(全量动作库)、`2589559`(Target+全量控制面)、`e097fb1`(resident/bridge)、`bbaccb7`/`e6450ba`/`f501665`/`2fda71c`(M1 各步)、`d327b97`(M0)。
 - G1 过程中发现并修复的真实缺陷:**(a)** 桥与常驻进程的连接在常驻重启后失效 → 桥改为**按需重连**;**(b)** 观测/只读工具被控制令牌阻塞、卡住的动作可永久占用身体 → 读操作改为**不占令牌**,所有动作加**硬超时并在超时后释放控制**,客户端每个操作也加了超时;**(c)** 区域查询在物品上限处**静默截断**导致"最近方块"报错(把 1.25 格的木头顶成 48.5)→ 按方块 id 在服务端过滤并显式处理截断。
@@ -77,7 +77,7 @@ node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
   ```
 
 ## 5. 待办(按设计,不留捷径)
-- **M2(大部分完成)**:`world` 通用查询(region/exposedFaces/standableSurfaces/connected + 官方标签匹配)+ 关系(adjacentAir/support/hazardous 权威 + canReach/canSee 客户端读)+ **表面壳**(仅暴露面;事件补丁/窗口平移/低频兜底;可站/可交互/危险三层)+ **两层地图第二层(持久稀疏发现图;带来源/时间/置信/stale;`revalidate` 进近校验;JSON 跨会话;仅规划,绝不作后置证据;`find_nearest` 自动记录、新增 `recall` 读取)** 已完成;`execution` **L1 reflex**、**L3 契约引擎**(因果邻域签名 diff + 动作 `scope`/`verify` + 超时按真实变化 reconcile)**已完成**;`tasks` **有界词表执行**(sequence/for_each/repeat/branch + set_difference/component/region/box_cells + 目标条件化 + 终止后置)**已完成**;`interfaces` 暴露 **`run_method`**(共 39 工具)**已完成**。**待做**:Mod 记录**放置**事件、指针式(relational)查询扩展、持续动作 `explore`(M6)、系统性地把表面壳刷新接入常驻循环。
+- **M2(完成)**:`world` 通用查询 + 关系 + **表面壳(由常驻进程驱动:2s 事件补丁/跨格平移 + 30s 兜底)** + **两层地图第二层(持久稀疏发现图)**;`execution` **L1 reflex** + **L3 契约引擎**;`tasks` **有界词表执行**;`interfaces` 暴露 **`run_method`** 及**关系/表面感知工具 `scan_component`/`scan_surface`/`check_relations`/`recall`(共 42 工具)**;观测 Mod 记录**破坏 + 放置**。**M2 门槛 G1/G2 均通过**。下一步进入 **M3**(knowledge 方法库/门禁/回退)。`explore` 持续动作与视觉留 M6。
 - **M3**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用词表造。
 - **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;可视化(prismarine-viewer 调试 + headless 出帧)。
 - **M5**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标 + 消融)+ `scenarios/`(T1–T4 + 种子清单 + fixtures + `reset-world.sh`)。
