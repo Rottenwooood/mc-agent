@@ -7,6 +7,8 @@ import type {
   Box,
   Component,
   EntityFact,
+  EventCursor,
+  EventPage,
   ExposedFace,
   ItemStack,
   Match,
@@ -39,6 +41,10 @@ export class World {
 
   entities(radius?: number): Promise<MaybeFact<EntityFact[]>> {
     return this.port.entities(radius != null ? { radius } : undefined);
+  }
+
+  events(cursor?: EventCursor, max?: number): Promise<EventPage> {
+    return this.port.events(cursor, max);
   }
 
   selfPos(): Promise<Vec3 | undefined> {

@@ -1,9 +1,9 @@
 // Perception atomic actions. Read-only; authoritative facts come from World, client-only
 // reads (raycast/recipes/world info/container contents) are labelled observed.
 
-import type { ActionResult, Target, Vec3 } from '@mc-agent/contracts';
+import type { ActionResult, Match, Target, Vec3 } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
-import { distance, type DiscoveryKind } from '@mc-agent/world';
+import { distance, isHazardous, type DiscoveryKind } from '@mc-agent/world';
 import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
@@ -250,6 +250,132 @@ const recall: AtomicAction = {
   },
 };
 
+const scanComponent: AtomicAction = {
+  contract: contract({
+    name: 'scan_component',
+    description:
+      'Connected component of matching cells reachable from a seed (e.g. "a tree" over a log and the #logs tag, or a vein over an ore). Returns size, bounding box and exposure — not a hand-named structure.',
+    params: {
+      type: 'object',
+      properties: {
+        seed: { type: 'object', description: 'Seed target (a cell or the nearest matching block)' },
+        match: { type: 'object', description: 'Match: {kind:"block",block} or {kind:"tag",tag}' },
+        neighbor: { type: 'string', enum: ['face', 'edge'], default: 'face' },
+        radius: { type: 'integer', default: 32 },
+      },
+      required: ['seed', 'match'],
+      additionalProperties: false,
+    },
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const rt = await resolveTarget(ctx, args.seed as Target);
+    if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'seed has no position' : rt.reason });
+    const r = await ctx.world.connected(rt.value.pos, args.match as Match, {
+      radius: Number(args.radius ?? 32),
+      ...(args.neighbor === 'edge' ? { neighbor: 'edge' as const } : {}),
+    });
+    if (isUnknown(r)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' });
+    return pass({
+      data: { size: r.value.size, exposed: r.value.exposed, bbox: r.value.bbox },
+      evidence: [{ claim: 'connected_component', source: 'authoritative' }],
+    });
+  },
+};
+
+const scanSurface: AtomicAction = {
+  contract: contract({
+    name: 'scan_surface',
+    description:
+      'Surface-shell derived layers near the bot: exposed faces, standable surfaces and hazardous faces (fresh local shell when maintained, otherwise an authoritative query).',
+    params: {
+      type: 'object',
+      properties: { radius: { type: 'integer', default: 12 }, center: { type: 'array', items: { type: 'integer' } } },
+      additionalProperties: false,
+    },
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const radius = Number(args.radius ?? 12);
+    const center = (Array.isArray(args.center) ? (args.center as Vec3) : undefined) ?? (await ctx.world.selfPos());
+    if (!center) return fail('precondition_failed', { reasonDetail: 'no centre' });
+    const box = {
+      min: [center[0] - radius, center[1] - radius, center[2] - radius] as Vec3,
+      max: [center[0] + radius, center[1] + radius, center[2] + radius] as Vec3,
+    };
+    const tags = await ctx.world.tagTable();
+    const tt = isUnknown(tags) ? undefined : tags.value;
+    if (ctx.shell) {
+      const faces = ctx.shell.facesIn(box);
+      return pass({
+        data: {
+          source: 'shell',
+          exposed_faces: faces.length,
+          standable: ctx.shell.standableIn(box).slice(0, 64),
+          hazardous: ctx.shell.hazardousIn(box, tt).map((f) => ({ pos: f.pos, block: f.block })).slice(0, 64),
+        },
+        evidence: [{ claim: 'surface_shell', source: 'authoritative' }],
+      });
+    }
+    const r = await ctx.world.exposedFaces(box);
+    if (isUnknown(r)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' });
+    const st = await ctx.world.standableSurfaces(box);
+    return pass({
+      data: {
+        source: 'query',
+        exposed_faces: r.value.length,
+        standable: isUnknown(st) ? [] : st.value.slice(0, 64),
+        hazardous: r.value.filter((f) => isHazardous(f.block, tt)).map((f) => ({ pos: f.pos, block: f.block })),
+      },
+      evidence: [{ claim: 'exposed_faces', source: 'authoritative' }],
+    });
+  },
+};
+
+const checkRelations: AtomicAction = {
+  contract: contract({
+    name: 'check_relations',
+    description:
+      'Relations of a target: within reach, reachable (client path check), line of sight (client), adjacent air, support, hazardous (authoritative). Cheap affordances so the agent need not call-then-fail.',
+    params: { type: 'object', properties: { target: { type: 'object' } }, required: ['target'], additionalProperties: false },
+    effectClass: 'read',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const rt = await resolveTarget(ctx, args.target as Target);
+    if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
+    const pos = rt.value.pos;
+    const self = await ctx.world.selfPos();
+    const dist = self ? distance(self, pos) : null;
+    const [adj, supp, haz] = await Promise.all([ctx.world.adjacentAir(pos), ctx.world.support(pos), ctx.world.hazardous(pos)]);
+    const withinReach = dist !== null && dist <= 4.5;
+    let reachable: boolean | null = null;
+    let los: boolean | null = null;
+    try {
+      reachable = withinReach ? true : await ctx.ctrl.canReach(pos, { range: 2 });
+    } catch {
+      reachable = null;
+    }
+    try {
+      los = await ctx.ctrl.canSee(pos);
+    } catch {
+      los = null;
+    }
+    return pass({
+      data: {
+        distance: dist === null ? null : Number(dist.toFixed(2)),
+        within_reach: withinReach,
+        reachable,
+        line_of_sight: los,
+        adjacent_air: isUnknown(adj) ? null : adj.value,
+        support: isUnknown(supp) ? null : supp.value,
+        hazardous: isUnknown(haz) ? null : haz.value,
+      },
+      evidence: [
+        { claim: 'reachable', source: 'observed' },
+        { claim: 'adjacent_air/support/hazardous', source: 'authoritative' },
+      ],
+    });
+  },
+};
+
 export const perceptionActions: AtomicAction[] = [
   observe,
   getSelfStatus,
@@ -263,4 +389,7 @@ export const perceptionActions: AtomicAction[] = [
   lookupRecipe,
   getWorldInfo,
   recall,
+  scanComponent,
+  scanSurface,
+  checkRelations,
 ];

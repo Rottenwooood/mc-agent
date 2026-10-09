@@ -1,11 +1,15 @@
 // Assembly: pick adapters, build the world/execution layers and the tool registry.
 // apps/agent is the ONLY place that wires concrete backends (framework §3).
+//
+// It also drives the local surface shell in the background (event patches + window shift +
+// low-frequency fallback), so perception is fresh without the model asking for it.
 
 import { MineflayerControlPort } from '@mc-agent/adapters-mineflayer';
 import { TelemetryWorldPort } from '@mc-agent/adapters-telemetry';
-import { World } from '@mc-agent/world';
+import { SurfaceShell, World } from '@mc-agent/world';
 import { ControlToken, ReflexShield } from '@mc-agent/execution';
 import { ToolRegistry, buildTools, type ToolContext } from '@mc-agent/interfaces-mcp';
+import type { EventCursor } from '@mc-agent/contracts';
 
 export interface AppContext {
   username: string;
@@ -13,12 +17,55 @@ export interface AppContext {
   ctrl: MineflayerControlPort;
   token: ControlToken;
   reflex?: ReflexShield;
+  shell: SurfaceShell;
   registry: ToolRegistry;
   toolCtx: ToolContext;
 }
 
 export interface CreateOptions {
   username?: string;
+}
+
+/** Event patches + window shift (2s) and a full low-frequency sweep (30s). */
+function startMaintenance(world: World, shell: SurfaceShell): void {
+  let cursor: EventCursor | undefined;
+  let lastChunk = '';
+  const shift = setInterval(() => {
+    void (async () => {
+      try {
+        const self = await world.selfPos();
+        if (!self) return;
+        const chunk = `${Math.floor(self[0] / 16)},${Math.floor(self[2] / 16)}`;
+        if (chunk !== lastChunk) {
+          lastChunk = chunk;
+          await shell.recenter(self);
+        }
+        const page = await world.events(cursor, 256);
+        if (page.resetRequired) {
+          cursor = page.cursor;
+          await shell.refresh(self);
+        } else {
+          if (page.events.length > 0) await shell.applyEvents(page.events);
+          cursor = page.cursor;
+        }
+      } catch {
+        /* maintenance must never throw */
+      }
+    })();
+  }, 2000);
+  shift.unref();
+
+  const sweep = setInterval(() => {
+    void (async () => {
+      try {
+        const self = await world.selfPos();
+        if (self) await shell.refresh(self);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, 30000);
+  sweep.unref();
 }
 
 export async function createContext(opts: CreateOptions = {}): Promise<AppContext> {
@@ -28,10 +75,13 @@ export async function createContext(opts: CreateOptions = {}): Promise<AppContex
 
   const world = new World(new TelemetryWorldPort(undefined, username));
   const token = new ControlToken();
+  const shell = new SurfaceShell(world);
   const reflex = process.env.MCAGENT_REFLEX === '0' ? undefined : new ReflexShield(world);
   const registry = new ToolRegistry();
-  const toolCtx: ToolContext = { world, ctrl, token, ...(reflex ? { reflex } : {}) };
+  const toolCtx: ToolContext = { world, ctrl, token, shell, ...(reflex ? { reflex } : {}) };
   for (const t of buildTools()) registry.register(t);
 
-  return { username, world, ctrl, token, reflex, registry, toolCtx };
+  startMaintenance(world, shell);
+
+  return { username, world, ctrl, token, ...(reflex ? { reflex } : {}), shell, registry, toolCtx };
 }

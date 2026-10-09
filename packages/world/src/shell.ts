@@ -18,8 +18,8 @@ export class SurfaceShell {
 
   constructor(
     private readonly world: World,
-    /** Window radius in blocks (~4 chunks by default). */
-    private readonly radius = 64,
+    /** Window radius in blocks. Kept modest until the Mod can return only exposed faces. */
+    private readonly radius = 10,
   ) {}
 
   get size(): number {
@@ -40,6 +40,8 @@ export class SurfaceShell {
     const box = this.windowBox(center);
     const r = await this.world.exposedFaces(box);
     if (isUnknown(r)) return;
+    // A truncated scan would silently drop faces; refuse to populate from it.
+    if (r.coverage.truncated) return;
     this.faces.clear();
     for (const f of r.value) this.faces.set(key(f.pos), f);
     this.center = center;
@@ -82,7 +84,7 @@ export class SurfaceShell {
     const additions = prev ? boxDiff(newBox, this.windowBox(prev)) : [newBox];
     for (const b of additions) {
       const r = await this.world.exposedFaces(b);
-      if (isUnknown(r)) continue;
+      if (isUnknown(r) || r.coverage.truncated) continue;
       for (const f of r.value) this.faces.set(key(f.pos), f);
     }
     for (const [k, f] of this.faces) {

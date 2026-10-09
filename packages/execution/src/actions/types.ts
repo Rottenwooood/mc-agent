@@ -2,7 +2,7 @@
 // results are self-explaining ActionResults judged on world evidence.
 
 import type { ActionContract, ActionResult, ControlPort, JsonSchema } from '@mc-agent/contracts';
-import type { World } from '@mc-agent/world';
+import type { SurfaceShell, World } from '@mc-agent/world';
 import type { ControlToken } from '../token.js';
 import type { ReflexShield } from '../reflex.js';
 import type { EffectScope, VerificationWindow, VerifyOutcome } from '../contract/signature.js';
@@ -13,6 +13,8 @@ export interface ActionContext {
   token: ControlToken;
   /** L1 reflex shield; when present, actions run guarded (see guard.ts). */
   reflex?: ReflexShield;
+  /** Locally maintained surface shell (present when the resident drives it). */
+  shell?: SurfaceShell;
 }
 
 export interface AtomicAction {
