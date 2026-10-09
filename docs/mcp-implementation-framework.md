@@ -25,7 +25,7 @@
 L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L2 Primitive(`execution/primitives`) / L3 Contract Engine(`execution/contract`+`contracts`) / L4 二级动作与 skill(`knowledge`+`tasks`) / L5 Meta-Eval(`tasks`+`tests/eval`)。
 
 ## 2. 目录(沿用 `16 §2`)
-`apps/agent` · `packages/{contracts,foundation,world,execution,tasks,knowledge,interfaces/mcp,adapters/{mineflayer,telemetry,vision}}` · `mods/server-observer` · `scenarios` · `tests/{semantics,replay,integration,eval}` · `tools` · `docs`。
+`apps/agent` · `packages/{contracts,foundation,world,execution,tasks,knowledge,interfaces/mcp,adapters/{mineflayer,telemetry,client-mod,vision}}` · `mods/mcagent` · `scenarios` · `tests/{semantics,replay,integration,eval}` · `tools` · `docs`。
 
 ## 3. 依赖方向(强制)
 `contracts ← foundation ← world / execution ← tasks / knowledge ← interfaces/mcp ← apps/agent`;`adapters/*` 实现 `foundation` 端口。`interfaces/mcp` 不写执行逻辑。
@@ -103,7 +103,7 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 - **agent 面 = 两个主感知工具(`view` / `scan_blocks`)+ 有界 runner(`run_method`)+ 二级动作工具(`define_action`/`list_actions`/`try_action`/`activate_action`/`rollback_action`/`retire_action`)+ skill 文本工具(`write_skill`/`list_skills`/`read_skill`)+ 持续动作**;结果自解释;坐标不引导。详见 §12 与 §7。
 - **动态/生成(已实现,M4)**:二级动作库为**唯一真相源**;`active` 版本由常驻进程注册为**一等工具**(调用方式与一级动作相同);激活/回退/退役时**重新同步工具面并发 `notifications/tools/list_changed`**(resident → 桥 → 客户端);`try_action` 是**校验口**(跑 draft/指定版本)兼弱客户端兼容。skill 是**文本**,按需检索注入,不进工具表。
 
-## 10. mods/server-observer 契约(只读,`14 §4`)
+## 10. mods/mcagent 契约(只读观测 `14 §4` + 客户端控制)
 `/health`;`/snapshot`(单 tick 原子 + `snapshot_seq` + `coverage` + 每事实 `obs_seq/observed_tick`);`/events?since=<{epoch,seq}>`(`cursor/has_more/reset_required`;**覆盖玩家破坏与放置**,`before→after`,`actor`);**`/tags`(服务端权威的官方方块/实体标签表,供"按标签匹配",不自造分类)**;`/markers`;`isLoaded=false→unknown`;只读 + token;**归因上限 `self_temporal`**。
 
 ## 11. 环境 / 工具链(`16`)
@@ -136,7 +136,12 @@ MC 1.20.1 · Loader 0.19.5 · Fabric API 0.92.12+1.20.1 · Loom 1.18.2 · Gradle
 
 **顺序**:M0→M1→M2→M3→M4→M5,必须前一步 gate 通过才进下一步。**测试用 subagent 执行**。
 
-**工程**:pnpm workspace + `tsc -b` + vitest;每步可编译、可测。**迁移**:`mc-mod → mods/server-observer`,`agent → apps/agent`(TS),原型留 `proto/mcp-runtime` 分支。
+**工程**:pnpm workspace + `tsc -b` + vitest;每步可编译、可测。**迁移**:`mc-mod → mods/mcagent`,`agent → apps/agent`(TS),原型留 `proto/mcp-runtime` 分支。
+
+> **Route B(真实客户端控制)**:`mods/mcagent` 的 `client` 源集在真实打开的客户端里把本地玩家
+> 作为身体,经本地 HTTP 8766 暴露 `ControlPort` 原语;`@mc-agent/adapters-client-mod` 实现同一
+> 接口,`MCAGENT_CONTROL=client-mod` 选择。**上层(执行引擎/契约/工具面/二级动作/skill/感知)不变。**
+> 详见 `docs/client-controller.md`。
 
 ## 15. 累计已定决策
 1. 不做主动区**体积**缓存;改为**接触空气的表面壳**,并入多层表面图。

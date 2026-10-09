@@ -81,7 +81,11 @@ L5 Meta / Eval             tests/eval
 
 ### 3.1 它是什么 / 为什么
 
-一个 Fabric **服务端只读** Mod(`mods/server-observer`)。它把"服务端权威事实"用**本地 HTTP JSON** 暴露给外部 agent;**从不修改世界**。为什么需要它:agent 的证据必须是**服务端真值**,而不是客户端自报;并且要能**单 tick 原子**地取一份完整快照(避免"位置和血量来自不同时刻")。
+一个 Fabric Mod(`mods/mcagent`),**一个 jar 两个环境**:
+- **`main` 源集(服务端)**:只读观测。把"服务端权威事实"用**本地 HTTP JSON**(8765)暴露给外部 agent;**从不修改世界**。
+- **`client` 源集(客户端)**:真实客户端**本地玩家控制**(HTTP 8766),见 `docs/client-controller.md`。
+
+为什么需要观测:agent 的证据必须是**服务端真值**,而不是客户端自报;并且要能**单 tick 原子**地取一份完整快照(避免"位置和血量来自不同时刻")。
 
 - 监听:`127.0.0.1:8765`;4 线程池。
 - 鉴权:若设置了 `mcagent.observer.token`(系统属性/环境变量 `MCAGENT_OBSERVER_TOKEN`),则要求 `Authorization: Bearer <token>`;默认无。
@@ -91,11 +95,20 @@ L5 Meta / Eval             tests/eval
 ### 3.2 目录
 
 ```
-mods/server-observer/src/main/java/com/mcagent/observer/
+mods/mcagent/src/main/java/com/mcagent/observer/   # 服务端:只读观测
 ├── ObserverMod.java            # 入口:生命周期、tick 计数、登记破坏事件
 ├── HttpApi.java                # 四个 HTTP 接口
 ├── EventLog.java               # 有界事件日志(epoch/seq 游标)
 └── mixin/BlockItemPlaceMixin.java  # 记录"放置方块"事件
+mods/mcagent/src/client/java/com/mcagent/client/   # 客户端:本地玩家控制
+├── ClientControllerMod.java    # 入口:起控制 HTTP + 逐 tick 调度
+├── ControlHttp.java            # 控制 HTTP 路由(线程→客户端线程)
+├── ControlDispatcher/ControlTask  # tick 驱动的任务调度(单身体)
+├── PlayerActions.java          # 各控制原语(原版交互/菜单)
+├── Nav.java / WalkTask.java    # 有界 A* + 输入驱动走位
+├── ControlledInput.java        # 由控制器接管的玩家输入
+├── ClientReads.java            # 客户端只读(raycast/配方/世界信息/可达/可见)
+└── ProductionTasks.java        # 合成/熔炼/附魔/铁砧/交易/读容器
 ```
 
 ### 3.3 `GET /health` —— 存活与时钟
@@ -333,6 +346,7 @@ mods/server-observer/src/main/java/com/mcagent/observer/
 
 - **`adapters/telemetry`**:`TelemetryWorldPort implements WorldPort`(把观测 Mod 的 HTTP JSON → `MaybeFact`;截断/未加载→`unknown`)。
 - **`adapters/mineflayer`**:`MineflayerControlPort implements ControlPort`(用协议客户端发玩家合法动作;`goto` 用 pathfinder;`place` 找参考面;`dig` 自动装最佳工具)。
+- **`adapters/client-mod`**:`ClientModControlPort implements ControlPort`(把方法调用翻译成客户端 Mod 的本地 HTTP;控制真实打开的客户端里的本地玩家)。与 mineflayer 后端**同一接口**,由 `MCAGENT_CONTROL` 选择。`connect()` = 轮询 `/health` 直到客户端进入世界。
 
 ### 5.9 `apps/agent` —— 装配与进程
 
@@ -433,6 +447,8 @@ mods/server-observer/src/main/java/com/mcagent/observer/
 ```sh
 pnpm build / pnpm test / pnpm smoke:tool          # tsc -b / vitest / 工具 smoke
 tools/server-up.sh                                # Fabric 服务器 + 观测 Mod(:8765)
+tools/client-up.sh [--install-only]               # 构建+安装 mod 到真实 Fabric 客户端并启动(自动入服)
+tools/launch-client.mjs --server H:P              # 直接起客户端(从 launcher 版本清单;离线鉴权)
 node apps/agent/dist/main-resident.js             # 常驻进程(连 bot 'Bot',socket)
 tools/reset-world.sh <seed>                       # 硬种子重置
 tools/bench.sh --tasks T1,T3 --seeds 5001,5002    # 一键 benchmark
@@ -440,12 +456,14 @@ node tests/eval/{g1,g2,g3}-verifier.mjs           # 独立验收器
 tools/view-up.sh                                  # 调试可视化(俯视表面图)
 tools/setup-bot.mjs ... cmd|dig|fixture|fixture-at  # 假玩家 fixture/扰动(不暴露给 agent)
 ```
-环境变量:`MCAGENT_ACTIONS`(二级动作库路径)、`MCAGENT_SKILLS`(skill 文本库路径)、`MCAGENT_REFLEX=0`(关 L1)。
+环境变量:`MCAGENT_ACTIONS`(二级动作库路径)、`MCAGENT_SKILLS`(skill 文本库路径)、`MCAGENT_REFLEX=0`(关 L1)、
+`MCAGENT_CONTROL=mineflayer|client-mod`(控制后端)、`MCAGENT_CONTROL_URL`(客户端控制 HTTP,默认 8766)。
 
 ---
 
 ## 11. 文档索引
 
+- `docs/client-controller.md` — **真实客户端控制适配层**(只换 ControlPort 后端;线协议、实现要点、实机验证、运行)。
 - `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约、L0–L5、动作库、进程/Mod 契约、可视化。
 - `docs/world-map-and-composition.md` — 表面壳/地图/通用查询/§12 感知与寻址/有界词表/拒绝的反模式。
 - `docs/eval-benchmark.md` — 实机 benchmark(种子/任务/验收/指标/消融)。

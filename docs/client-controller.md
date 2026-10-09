@@ -143,14 +143,17 @@ mods/mcagent/
 ### 5.3 移动 = 输入驱动(玩家合法)
 不直接改速度/位置(服务端会拒绝)。用一个 `ControlledInput extends Input`(覆盖 `tick` 为
 空),在每 tick 设置 `forwardImpulse/leftImpulse/jumping/shiftKeyDown`,由原版运动学驱动;
-`lookAt/steer` 同理。`stopMotion` 清零并 `releaseUsingItem`。
+`lookAt/steer` 同理。**注意**:多人下本地玩家的跳跃不会从 `input.jumping` 自动生效,需显式
+`LivingEntity.setJumping(true)`(公开 API),否则只会走不会跳。`stopMotion` 清零并 `releaseUsingItem`;
+控制器只在有任务时接管输入,空闲时还原键盘输入(人类仍可操作)。
 
 ### 5.4 导航(A* + 走位)
 `goto`:
 1. 在客户端**已加载区块**上做**有界 A***:节点=脚部格;邻居=4/8 向;支持上台阶(≤1)、下落(≤3);
    要求目标列"脚+头两格可通行且下方有支撑";节点上限 + 距离上限;
 2. 逐 tick 跟随路径:朝下一节点设 yaw + `forwardImpulse=1`,需要时 `jumping`;
-3. 到达 `range` 内或超时结束。
+3. 到达判定用**与 `GoalNear` 等价的 3D 距离**(块坐标欧氏距离 ≤ range),并要求**落地稳定**
+   (onGround 连续 2 tick)才报告到达——否则 `go_to` 的后置会采样到下降途中的未稳定位置。
 `follow/flee` 用同一导航:周期重算目标点。
 
 ### 5.5 交互原语(原版路径)
@@ -199,3 +202,38 @@ mods/mcagent/
 - **生产类原语**依赖原版菜单机制,成功率受配方/材料/窗口时序影响,需实机校准。
 - **反作弊/风控**:真实客户端 + 输入驱动 = 与真人一致的运动学,不注入特权动作。
 - **多客户端**:一个客户端进程对应一个身体;要多个身体就多开客户端(端口需区分)。
+
+---
+
+## 9. 验证与运行(实机)
+
+### 9.1 实机验证结论(2026-10-10)
+在**真实 Fabric 1.20.1 客户端**(本地 profile `1.20.1-Fabric 0.19.5`,装了 fabric-api 0.92.12)
+上,经常驻进程(`MCAGENT_CONTROL=client-mod`)**工具面不变(49 个)**跑通:
+- `dig` → 观测 Mod 事件 `actor=Agent`(dirt→air),背包获得 dirt(**服务端权威**);
+- `place` → 事件 air→dirt;
+- `go_to` → `effect=pass`(权威自身位置,含上坡跳跃);
+- `set_block`(原子动作 + 契约)→ `pass`,事件确认;
+- `run_method` 组合可执行;
+- 直接 HTTP:jump/steer/look_at/raycast/world_info/chat 均生效。
+
+上层(执行引擎 / L1 reflex / L3 契约 / 工具面 / 二级动作 / skill / 感知)**零改动**。
+
+### 9.2 运行
+```sh
+# 1) 起服务端(合并后的单 mod:只读观测)
+tools/server-up.sh
+
+# 2) 构建+安装 mod 到客户端 profile 并启动(自动连 127.0.0.1:25565)
+tools/client-up.sh
+#   或分步:tools/client-up.sh --install-only; node tools/launch-client.mjs --server 127.0.0.1:25565
+
+# 3) 以真实客户端为身体跑 agent
+MCAGENT_CONTROL=client-mod MC_USER=<客户端玩家名> node apps/agent/dist/main-resident.js
+```
+- 端口:观测 8765;控制 8766(`MCAGENT_CONTROL_PORT`)。
+- 客户端 mod 依赖 **fabric-api**(`tools/fetch-fabric-api.mjs` 从 Modrinth 拉取)。
+
+### 9.3 只读 mock 测试
+`tests/semantics/client-mod-adapter.test.ts`:起本地 mock HTTP 回放 wire 形状,断言适配器的
+请求构造 / 回执 / 结果 / 错误 / `connect()` 轮询——无需真实客户端。
