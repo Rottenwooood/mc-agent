@@ -3,6 +3,7 @@
 
 import type { Predicate, Tri } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
+import { parseHandle } from '@mc-agent/world';
 import type { ActionContext } from '@mc-agent/execution';
 
 const norm = (b: string): string => (b.includes(':') ? b : 'minecraft:' + b);
@@ -74,6 +75,32 @@ export async function evalPredicate(ctx: ActionContext, pred: Predicate): Promis
     const id = s.slice('entity#'.length);
     const es = await ctx.world.entities(64);
     return isUnknown(es) ? undefined : es.value.some((e) => e.id === id);
+  }
+  if (s.startsWith('obj:') || s.startsWith('ent:')) {
+    const h = parseHandle(s);
+    if (!h) return undefined;
+    if (h.kind === 'entity') {
+      const es = await ctx.world.entities(64);
+      return isUnknown(es) ? undefined : es.value.some((e) => e.id === h.label);
+    }
+    const r = await ctx.world.connected(h.anchor, { kind: 'block', block: h.label }, { radius: 32 });
+    if (isUnknown(r)) return undefined;
+    const size = r.value.size;
+    switch (pred.predicate) {
+      case 'gone':
+        return size === 0;
+      case 'present':
+        return size > 0;
+      case 'size_ge':
+        return size >= Number(pred.value);
+      case 'size_le':
+        return size <= Number(pred.value);
+      case 'size_is':
+      case 'is':
+        return size === Number(pred.value);
+      default:
+        return undefined;
+    }
   }
   return undefined;
 }

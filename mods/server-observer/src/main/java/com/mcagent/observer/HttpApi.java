@@ -8,6 +8,7 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;
@@ -244,6 +245,7 @@ public final class HttpApi {
             want.add("blocks");
         }
         int maxItems = req.has("max_items") ? Math.min(req.get("max_items").getAsInt(), MAX_ITEMS_CAP) : 1024;
+        boolean exposedOnly = req.has("exposed_only") && req.get("exposed_only").getAsBoolean();
         Set<String> blockFilter = stringSet((req.has("filters") && req.get("filters").isJsonObject())
                 ? req.getAsJsonObject("filters").getAsJsonArray("block_ids") : null);
 
@@ -278,6 +280,9 @@ public final class HttpApi {
             for (BlockPos pos : BlockPos.betweenClosed(min[0], min[1], min[2], max[0], max[1], max[2])) {
                 BlockState st = level.getBlockState(pos);
                 if (st.isAir()) {
+                    continue;
+                }
+                if (exposedOnly && !isExposed(level, pos)) {
                     continue;
                 }
                 String id = blockId(st);
@@ -478,6 +483,17 @@ public final class HttpApi {
     private static String blockId(BlockState st) {
         ResourceLocation rl = BuiltInRegistries.BLOCK.getKey(st.getBlock());
         return rl == null ? "unknown" : rl.toString();
+    }
+
+    /** True when the block at pos touches air or a fluid on any face (surface). */
+    private static boolean isExposed(ServerLevel level, BlockPos pos) {
+        for (Direction d : Direction.values()) {
+            BlockState ns = level.getBlockState(pos.relative(d));
+            if (ns.isAir() || !ns.getFluidState().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static JsonArray vec(int[] v) {

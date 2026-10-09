@@ -49,7 +49,7 @@ async function runControl(c: ControlStep, env: RunEnv): Promise<void> {
       }
       return;
     case 'for_each': {
-      const cells = await evalSet(env.ctx.world, c.set, env.vars);
+      const cells = await evalSet(env.ctx, c.set, env.vars);
       for (const cell of cells) {
         env.vars[c.as] = cell;
         for (const s of c.body) {

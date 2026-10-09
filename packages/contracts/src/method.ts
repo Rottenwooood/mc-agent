@@ -21,7 +21,15 @@ export type SetExpr =
   | { op: 'component'; seed: Arg; match: Filter; neighbor?: unknown; bounded?: Box }
   | { op: 'region'; box: Arg; filter?: Filter }
   /** Every integer cell of a box (the "desired" side of a build, including air targets). */
-  | { op: 'box_cells'; box: Arg };
+  | { op: 'box_cells'; box: Arg }
+  /** All cells of an object handle. */
+  | { op: 'members'; handle: Arg }
+  /** The air/water-exposed cells of an object handle. */
+  | { op: 'surface'; handle: Arg }
+  /** Cells of the nearest visible object matching a filter. */
+  | { op: 'nearest'; match: Filter }
+  /** A box relative to a visible anchor (handle or 'self'), the primary way to build. */
+  | { op: 'area'; anchor: Arg; size: [number, number, number]; offset?: [number, number, number] };
 
 export interface ActionStep {
   action: string;

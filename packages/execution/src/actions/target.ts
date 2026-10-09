@@ -1,8 +1,9 @@
-// Resolve a semantic Target into concrete world coordinates / ids at execution time.
-// Coordinates are resolved here, not supplied by the model.
+// Resolve a semantic Target into concrete world coordinates / ids at execution time
+// (world-map-and-composition §12). Handles are re-validated on use; directions are compass.
 
 import type { Target, Vec3 } from '@mc-agent/contracts';
-import { isUnknown } from '@mc-agent/contracts';
+import { directionStep, isUnknown } from '@mc-agent/contracts';
+import { distance, parseHandle } from '@mc-agent/world';
 import type { ActionContext } from './types.js';
 
 export interface Resolved {
@@ -10,18 +11,58 @@ export interface Resolved {
   entityId?: string;
   item?: string;
   containerPos?: Vec3;
+  /** The handle this resolved from, for evidence. */
+  subject?: string;
 }
 
 export type ResolveResult = { ok: true; value: Resolved } | { ok: false; reason: string };
 
+async function selfPos(ctx: ActionContext): Promise<Vec3 | undefined> {
+  return ctx.world.selfPos();
+}
+
+/** Re-validate a block/liquid/interactable handle to its nearest present member. */
+async function resolveObject(ctx: ActionContext, ref: string): Promise<ResolveResult> {
+  const h = parseHandle(ref);
+  if (!h) return { ok: false, reason: `bad handle: ${ref}` };
+  if (h.kind === 'entity') return { ok: true, value: { entityId: h.label, subject: ref } };
+  const r = await ctx.world.connected(h.anchor, { kind: 'block', block: h.label }, { radius: 8 });
+  if (isUnknown(r)) return { ok: false, reason: 'not observed' };
+  if (r.value.size === 0) return { ok: false, reason: 'expired: object no longer present' };
+  const self = await selfPos(ctx);
+  let best = r.value.cells[0]!.pos;
+  if (self) {
+    let bd = distance(self, best);
+    for (const c of r.value.cells) {
+      const d = distance(self, c.pos);
+      if (d < bd) {
+        bd = d;
+        best = c.pos;
+      }
+    }
+  }
+  return { ok: true, value: { pos: best, subject: ref } };
+}
+
 export async function resolveTarget(ctx: ActionContext, t: Target): Promise<ResolveResult> {
   switch (t.kind) {
     case 'self': {
-      const p = await ctx.world.selfPos();
+      const p = await selfPos(ctx);
       return p ? { ok: true, value: { pos: p } } : { ok: false, reason: 'no self position' };
     }
     case 'cell':
       return { ok: true, value: { pos: t.pos } };
+    case 'object':
+      return resolveObject(ctx, t.ref);
+    case 'relative': {
+      const base = t.from ? await resolveObject(ctx, t.from) : { ok: true as const, value: { pos: await selfPos(ctx) } };
+      if (!base.ok) return base;
+      const p = base.value.pos;
+      if (!p) return { ok: false, reason: 'relative base has no position' };
+      const s = directionStep(t.dir);
+      const n = t.steps ?? 1;
+      return { ok: true, value: { pos: [p[0] + s[0] * n, p[1] + s[1] * n, p[2] + s[2] * n] } };
+    }
     case 'block': {
       const r = await ctx.world.findNearestBlock(t.block, t.within ?? 48, t.around);
       if (isUnknown(r)) return { ok: false, reason: 'not observed' };
@@ -38,8 +79,6 @@ export async function resolveTarget(ctx: ActionContext, t: Target): Promise<Reso
     case 'item':
       return { ok: true, value: { item: t.item } };
     case 'container':
-      return t.pos ? { ok: true, value: { containerPos: t.pos } } : { ok: false, reason: 'container target needs a position (M2: nearest container)' };
-    case 'object':
-      return { ok: false, reason: 'object refs arrive in M2' };
+      return t.pos ? { ok: true, value: { containerPos: t.pos } } : { ok: false, reason: 'container target needs a position' };
   }
 }

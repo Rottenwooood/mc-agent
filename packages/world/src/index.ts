@@ -58,8 +58,8 @@ export class World {
   }
 
   /** Raw bounded region query (authoritative non-air cells). */
-  query(box: Box): Promise<MaybeFact<BlockCell[]>> {
-    return this.port.query(box);
+  query(box: Box, opts?: { blockIds?: string[]; maxItems?: number; exposedOnly?: boolean }): Promise<MaybeFact<BlockCell[]>> {
+    return this.port.query(box, opts);
   }
 
   /** Bounded region query (authoritative non-air cells), optionally filtered by block/tag. */
@@ -170,6 +170,16 @@ export type { BlockHit } from './geometry.js';
 export { SurfaceShell } from './shell.js';
 export { DiscoveryGraph } from './discovery.js';
 export type { DiscoveryEntry, DiscoveryKind, DiscoveryQuery, DiscoveryGraphJSON } from './discovery.js';
+export {
+  aggregateObjects,
+  buildView,
+  exposedCells,
+  entityHandle,
+  isFluid,
+  objectHandle,
+  parseHandle,
+} from './objects.js';
+export type { ObjectKind, WorldObject, ViewResult, ViewLayer } from './objects.js';
 export { makeBlockMatcher, makeEntityMatcher } from './match.js';
 export {
   FACE_NEIGHBORS,
