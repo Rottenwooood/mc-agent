@@ -18,6 +18,7 @@
 
 ## 1. 设计文档(主依据)
 
+- `docs/PROJECT-OVERVIEW.md` — **项目总览(由整体到局部;逐模块 + 逐公开 API:用途/入参/出参)**。第一次接触先读这份。
 - `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约(Fact/Predicate/`ActionResult`/`ActionContract`/`Method`)、L0–L5、**原子动作库(§6.1)**、进程形态、Mod 契约、可视化、累计决策。
 - `docs/world-map-and-composition.md` — 表面壳+表面图、两层地图、通用查询、`set_block` 两状态替换、**有界编排词表**、**§12 感知与寻址(定稿)**、拒绝的反模式。
 - `docs/eval-benchmark.md` — 实机 benchmark(种子隔离、agent 驱动、独立验收器、指标、消融)。
