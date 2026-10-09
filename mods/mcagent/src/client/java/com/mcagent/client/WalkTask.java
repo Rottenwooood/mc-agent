@@ -33,6 +33,7 @@ public final class WalkTask extends ControlTask {
     private double lastZ;
     private int sinceProgress;
     private int recomputes;
+    private int settle;
 
     public WalkTask(Minecraft mc, ControlledInput input, String label, long budgetMs,
                     GoalSource goal, int range, long stopAtMs) {
@@ -66,15 +67,24 @@ public final class WalkTask extends ControlTask {
             return true;
         }
 
-        double hd = Math.hypot(p.getX() - (target.getX() + 0.5), p.getZ() - (target.getZ() + 0.5));
-        if (hd <= Math.max(0.5, range)) {
+        BlockPos pblock = p.blockPosition();
+        if (Nav.dist3(pblock, target) <= Math.max(0, range)) {
             input.reset();
-            complete(Wire.accepted("path resolved"));
-            return true;
+            if (p.onGround()) {
+                settle++;
+                if (settle >= 2) {
+                    complete(Wire.accepted("path resolved"));
+                    return true;
+                }
+            } else {
+                settle = 0;
+            }
+            return false;
         }
+        settle = 0;
 
         if (path.isEmpty() || index >= path.size()) {
-            path = Nav.findPath(level, p.blockPosition(), target, Math.max(1, range), MAX_NODES, MAX_DIST);
+            path = Nav.findPath(level, pblock, target, Math.max(0, range), MAX_NODES, MAX_DIST);
             index = 0;
             if (path.isEmpty()) {
                 input.reset();

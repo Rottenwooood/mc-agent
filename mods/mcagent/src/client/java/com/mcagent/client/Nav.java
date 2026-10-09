@@ -77,7 +77,7 @@ public final class Nav {
             closed.add(key);
             expanded++;
 
-            if (horizontalDist(cur.pos, goal) <= goalRange) {
+            if (dist3(cur.pos, goal) <= goalRange) {
                 found = cur;
                 break;
             }
@@ -149,6 +149,14 @@ public final class Nav {
         double dx = a.getX() - b.getX();
         double dz = a.getZ() - b.getZ();
         return Math.hypot(dx, dz);
+    }
+
+    /** Euclidean distance between block positions (matches Mineflayer GoalNear semantics). */
+    public static double dist3(BlockPos a, BlockPos b) {
+        double dx = a.getX() - b.getX();
+        double dy = a.getY() - b.getY();
+        double dz = a.getZ() - b.getZ();
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /** Closest standable node to {@code origin} within {@code radius} (inclusive of origin). */

@@ -35,11 +35,16 @@ public class ClientControllerMod implements ClientModInitializer {
             if (client.player != null) {
                 if (dispatcher.busy()) {
                     actions.ensureInput();
+                }
+            }
+            dispatcher.tick();
+            if (client.player != null) {
+                if (dispatcher.busy()) {
+                    actions.syncJump();
                 } else {
                     actions.releaseInput();
                 }
             }
-            dispatcher.tick();
         });
     }
 

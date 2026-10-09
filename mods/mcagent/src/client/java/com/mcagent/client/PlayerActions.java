@@ -71,6 +71,18 @@ public final class PlayerActions {
         }
     }
 
+    /**
+     * Propagate the controller's jump intent. {@code LivingEntity.aiStep} jumps off the
+     * {@code jumping} field, which the local player sets from {@code input.jumping}; in
+     * multiplayer that copy does not run, so we set it explicitly (a public API).
+     */
+    public void syncJump() {
+        LocalPlayer p = mc.player;
+        if (p != null && input.jumping) {
+            p.setJumping(true);
+        }
+    }
+
     private LocalPlayer p() {
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null) {
