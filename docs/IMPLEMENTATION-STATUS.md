@@ -37,7 +37,7 @@ packages/interfaces/mcp       # ToolRegistry + buildTools()(全部动作 + run_m
 packages/adapters/telemetry   # WorldPort over 观测 Mod(权威 Fact / unknown)
 packages/adapters/mineflayer  # 全量 ControlPort(玩家合法动作)+ 客户端只读
 mods/server-observer          # Fabric 只读观测 Mod(数据契约)
-scenarios/actions/            # agent 造出的二级动作模板(G3 示例)
+scenarios/{actions,tasks}/    # 二级动作模板(G3)+ benchmark 任务(T1/T3);scenarios/seeds.txt 固定种子
 tests/{semantics,integration,eval}/   tools/   docs/
 ```
 
@@ -51,7 +51,7 @@ tests/{semantics,integration,eval}/   tools/   docs/
 | **M2.5** 感知/寻址返工(句柄 + 罗盘 + `view`/`scan_blocks`) | ✅ 完成 | **G1/G2 复验** ✅ |
 | **M3** 二级动作库(在线门禁/net-effect/回退)+ skill 文本层 | ✅ 完成 | **G3** ✅ |
 | **M4** interfaces 动态注册 + `tools/list_changed` + 多会话共享 + 可视化 | ✅ 完成 | **G4** ✅ |
-| **M5** 实机 benchmark(runner + 独立验收器 + 指标 + 消融)+ scenarios | ⏭ 下一步 | GF |
+| **M5** 实机 benchmark(runner + 独立验收器 + 指标 + 消融)+ scenarios | 🔶 装置完成 + 最小 GF 已跑 | GF(全量/消融待补) |
 | **M6** `explore` 持续动作 + 视觉 + 课程 | ⬜ 待办 | 各自 gate |
 
 顺序:M0→M1→M2→M3→M4→M5,前一步 gate 通过才进下一步。
@@ -84,6 +84,7 @@ tests/{semantics,integration,eval}/   tools/   docs/
   - skill 文本层:`write_skill` 写方法论 → `read_skill` 按需读取注入。
   - 验收器**独立重算在线门禁**(从原始 uses/pass/recent/net-effect)+ 校验:激活、坏版本 broken、回退存在、active=v1、**online-only(记录里无任何 seed/role 字段)** —— 全部通过。
 - **G4(动态工具 + 多会话 + 可视化)** — 常驻进程把 `active` 二级动作**注册为一等工具**;激活/回退/退役时重新同步工具面并向所有已连桥发 `tools/list_changed`(桥转成 MCP `notifications/tools/list_changed`)。实测:定义 `noop` → 3 次实机试用 → 激活后工具数 **49→50**、客户端收到 **1 次 `list_changed`**、**直接按名字调用**该二级动作成功(与一级动作同级);第二个桥**看到同一工具且共享同一身体**(坐标一致)。可视化:`tools/view.mjs`/`view-up.sh` 输出俯视表面图(终端 ANSI + 彩色 HTML);`prismarine-viewer` 3D 因需原生 `canvas` 暂缓。
+- **M5 装置 + 最小 GF(2026-10-10)** — 新增 `scenarios/{seeds.txt,tasks/T1.json,T3.json}` + 独立验收器 `tests/eval/verifiers/{t1,t3}.mjs` + agent 驱动 runner `tests/eval/runner.mjs` + 指标 `tests/eval/metrics/report.mjs` + 一键 `tools/bench.sh`。LLM 客户端 = **headless `opencode run --model opencode-go/<m> --auto`**(经 mc-agent MCP 驱动 resident);"mc client" = 假玩家(`setup-bot`)+ 可视化(`view.mjs`)。最小 GF(**T1+T3 × 固定种子 5001/5002**):**完成率 2/4**(T1 1/2、T3 1/2;seed 5002 全过、5001 全败);独立验收器直读观测 Mod 判定。观察:4 例都撞到 600s 预算(agent 完成后**不自停**,继续跑直到被截断)——`timedOut` = 被预算截断,非失败。T2/T4、误报率(需系统自报 verdict)、消融链**待补**。
 - **门槛中修复的真实缺陷**:`parseHandle` 拒绝含冒号标签(句柄全失效);`members/surface/nearest` 与对象后置走不过滤整块查询超上限(改服务端按 id 过滤);`scan_blocks match:"any"` 截断(改分类扫描);`view` 黑雾未实现、size 口径不一致;`area(anchor:'self')` 浮点生成非整数格(改取整);更早:控制令牌不可重入死锁(commit `6b7547f`,改 `AsyncLocalStorage` 可重入);桥重启后失效(改按需重连);只读工具被令牌阻塞(改不占令牌 + 硬超时)。
 - **已知瞬态(非系统性)**:刚 `go_to` 完仍在移动时立即放置,偶发落到相邻格;静止放置受控复现均正确。
 
@@ -100,6 +101,8 @@ node apps/agent/dist/main-bridge.js      # 薄 MCP 桥(OpenCode 按会话拉起)
 tools/reset-world.sh <seed>              # 按种子重置世界(硬种子隔离:停服/删 world/设 level-seed/重启/等 health)
 node tests/eval/g3-runner.mjs            # G3 全流程(agent 经 MCP)
 node tests/eval/g3-verifier.mjs          # G3 独立验收器
+tools/bench.sh --tasks T1,T3 --seeds 5001,5002   # M5 一键 benchmark(server+agent+client,固定种子)
+node tests/eval/metrics/report.mjs /tmp/opencode/bench/report.json   # 指标汇总
 tools/view-up.sh [--radius 20 --watch]   # 调试可视化:俯视表面图(终端 ANSI + HTML)
 ```
 
@@ -118,7 +121,7 @@ tools/view-up.sh [--radius 20 --watch]   # 调试可视化:俯视表面图(终�
 
 ## 7. 待办(真正未完成)
 
-- **M5(benchmark,独立装置)**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标:完成率/误报率/非 pass 三分/成本 + 消融链)+ `scenarios/`(**固定若干种子** `seeds.txt` + 场景/任务 T1–T4 + fixtures + blueprints)+ `reset-world.sh` 完善 + **一键启动**(`tools/bench.sh`:server + agent + client)。**Gate GF**:在固定种子上报告全部指标 + 消融;**机制有效性的唯一最终判定**。用于后续开发与论文实验。**种子/选型隔离属于此装置,不属于 agent(agent 只在线、无种子)。**
+- **M5(benchmark,独立装置)— 装置完成,GF 全量待补**:已实现 `runner`(agent 经 MCP 驱动)+ `verifiers/{t1,t3}` + `metrics` + `scenarios/{seeds.txt,T1,T3}` + `bench.sh`;最小 GF(T1+T3×2)**已跑并出指标**(完成率 2/4)。**待补**:T2/T4 任务与验收器;误报率(需系统自报 task verdict 的通道);**消融链**(①开环→…→⑤b 技能启用,各撤一项);全量固定种子报告。**种子/选型隔离属于此装置,不属于 agent。**
 - **M6**:`explore` 持续动作、视觉(`adapters/vision`)、课程。
 - 补 Mod:`/markers`、`coverage`/每事实版本的完善。
 

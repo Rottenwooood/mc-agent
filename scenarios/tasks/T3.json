@@ -1,0 +1,8 @@
+{
+  "id": "T3",
+  "title": "build a floor",
+  "goal": "Find the glowstone block near you. Build a 2x2 floor of mangrove_planks on the 2x2 ground area directly SOUTH of the glowstone block (make all 4 of those ground cells mangrove_planks). You already have mangrove_planks in your inventory.",
+  "budgetMs": 600000,
+  "fixture": { "kind": "build_site", "planks": 8 },
+  "verifier": "t3"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "T1",
+  "title": "collect wood",
+  "goal": "Collect at least 3 logs into your inventory by actually chopping log blocks from the world. Do not use any command or give mechanism.",
+  "budgetMs": 600000,
+  "fixture": { "kind": "tree", "logs": 3 },
+  "verifier": "t1"
+}

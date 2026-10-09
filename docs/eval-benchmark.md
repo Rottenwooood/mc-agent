@@ -105,24 +105,27 @@ for case in cases(task × seed × config):
 
 与 Voyager 及其"步骤暂停/特权"假设对照时,**必须匹配环境**(同种子、同 Mod 特权、同暂停策略),否则无效;并报告各自的"规划可见/验证可见/动作权限"。
 
-## 10. 目录与脚本
+## 10. 目录与脚本(已实现)
 
 ```text
 scenarios/
-├── tasks/<id>.yaml            # 目标/范围/预算/停止条件/fixture/verifier 引用
-├── seeds/{train,val,test}.txt
-├── fixtures/                  # 预置地形/结构/容器/怪物
-└── blueprints/                # T3 的体素蓝图
-tests/
-├── eval/runner                # agent 驱动运行器(§5)
-├── eval/verifiers/            # 独立外部验收器(§6)
-├── eval/metrics/              # 指标与报表(§7)
-└── integration/tool-smoke     # 非 LLM 工具 smoke(§1.A)
+├── tasks/<id>.json           # 目标/预算/fixture/verifier(T1/T3 已实现;T2/T4 待补)
+├── seeds.txt                 # 固定的一组种子
+└── blueprints/               # T3 的体素蓝图(待补)
+tests/eval/
+├── runner.mjs                # agent 驱动运行器:重置→fixture→resident→headless `opencode run`(goal)→验收→episode
+├── verifiers/{t1,t3}.mjs     # 独立外部验收器(直读观测 Mod)
+├── metrics/report.mjs        # 指标汇总(完成率/非 pass 三分/成本)
+└── (integration 在 tests/integration)
 tools/
-├── reset-world.sh <seed> [fixture]
-└── bench-up.sh                # 起常驻进程+MCP桥+benchmark 运行器
+├── reset-world.sh <seed>     # 世界重置
+├── bench.sh                  # 一键:起 server + 跑 runner(内含 resident 与 LLM 客户端)
+├── setup-bot.mjs             # 假玩家:fixture / 扰动(op,不暴露给 agent)
+└── view.mjs / view-up.sh     # 调试可视化
 ```
+
+> LLM 客户端 = **headless `opencode run --model opencode-go/<m> --auto`**(经 mc-agent MCP 驱动 resident);"mc client" = 假玩家(`setup-bot`)+ 可视化(`view.mjs`)。任务规格用 **JSON**(无 YAML 依赖)。
 
 ## 11. 达标判定(何时可说"机制有效")
 
-只有在**test 种子**上满足:`完成率` 可接受、`误报率` 显著低于基线、且 `insufficient_evidence` 率不失控、成本在预算内 —— 才算证据;否则视为**被证伪**(设计本身允许被否定)。
+只有在**固定种子**上满足:`完成率` 可接受、`误报率` 显著低于基线、且 `insufficient_evidence` 率不失控、成本在预算内 —— 才算证据;否则视为**被证伪**(设计本身允许被否定)。
