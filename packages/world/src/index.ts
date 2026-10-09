@@ -19,10 +19,13 @@ import type {
 import { isUnknown, unknown } from '@mc-agent/contracts';
 import { nearestCell, type BlockHit } from './geometry.js';
 import { makeBlockMatcher } from './match.js';
+import { DiscoveryGraph } from './discovery.js';
 import { connectedComponent, expandBox, exposedFaces as exposedFacesOf, standableSurfaces as standableOf, isHazardous, FACE_NEIGHBORS, key } from './queries.js';
 
 export class World {
   private tagsFact: MaybeFact<TagTable> | undefined;
+  /** Persistent sparse discovery graph — planning only, never postcondition evidence. */
+  readonly discoveries = new DiscoveryGraph();
 
   constructor(private readonly port: WorldPort) {}
 
@@ -159,6 +162,8 @@ export class World {
 export { nearestCell, distance } from './geometry.js';
 export type { BlockHit } from './geometry.js';
 export { SurfaceShell } from './shell.js';
+export { DiscoveryGraph } from './discovery.js';
+export type { DiscoveryEntry, DiscoveryKind, DiscoveryQuery, DiscoveryGraphJSON } from './discovery.js';
 export { makeBlockMatcher, makeEntityMatcher } from './match.js';
 export {
   FACE_NEIGHBORS,

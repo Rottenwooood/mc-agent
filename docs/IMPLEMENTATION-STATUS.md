@@ -77,7 +77,7 @@ node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
   ```
 
 ## 5. 待办(按设计,不留捷径)
-- **M2(大部分完成)**:`world` 通用查询(region/exposedFaces/standableSurfaces/connected + 官方标签匹配)+ 关系(adjacentAir/support/hazardous 权威 + canReach/canSee 客户端读)+ **表面壳**(仅暴露面;事件补丁/窗口平移/低频兜底;可站/可交互/危险三层)**已完成**;`execution` **L1 reflex**(precheck + 执行期不变量 + 中断)、**L3 契约引擎**(因果邻域签名 diff + 每个动作声明的 `scope`/`verify` + **超时后按真实世界变化reconcile**)**已完成**;`tasks` **有界词表执行**(sequence/for_each/repeat/branch + set_difference/component/region/box_cells + 目标条件化 + 终止后置)**已完成**;`interfaces` 暴露 **`run_method`**(38 工具)**已完成**。**待做**:两层地图(持久稀疏发现图)、指针式(relational)查询扩展、Mod 记录**放置**事件、持续动作 `explore`(M6)。
+- **M2(大部分完成)**:`world` 通用查询(region/exposedFaces/standableSurfaces/connected + 官方标签匹配)+ 关系(adjacentAir/support/hazardous 权威 + canReach/canSee 客户端读)+ **表面壳**(仅暴露面;事件补丁/窗口平移/低频兜底;可站/可交互/危险三层)+ **两层地图第二层(持久稀疏发现图;带来源/时间/置信/stale;`revalidate` 进近校验;JSON 跨会话;仅规划,绝不作后置证据;`find_nearest` 自动记录、新增 `recall` 读取)** 已完成;`execution` **L1 reflex**、**L3 契约引擎**(因果邻域签名 diff + 动作 `scope`/`verify` + 超时按真实变化 reconcile)**已完成**;`tasks` **有界词表执行**(sequence/for_each/repeat/branch + set_difference/component/region/box_cells + 目标条件化 + 终止后置)**已完成**;`interfaces` 暴露 **`run_method`**(共 39 工具)**已完成**。**待做**:Mod 记录**放置**事件、指针式(relational)查询扩展、持续动作 `explore`(M6)、系统性地把表面壳刷新接入常驻循环。
 - **M3**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用词表造。
 - **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;可视化(prismarine-viewer 调试 + headless 出帧)。
 - **M5**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标 + 消融)+ `scenarios/`(T1–T4 + 种子清单 + fixtures + `reset-world.sh`)。

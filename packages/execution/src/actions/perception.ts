@@ -3,7 +3,7 @@
 
 import type { ActionResult, Target, Vec3 } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
-import { distance } from '@mc-agent/world';
+import { distance, type DiscoveryKind } from '@mc-agent/world';
 import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
@@ -112,6 +112,15 @@ const findNearest: AtomicAction = {
       const r = await ctx.world.findNearestBlock(block, within);
       if (isUnknown(r)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' });
       if (!r.value) return pass({ data: { found: false, block } });
+      // Remember it in the (planning-only) discovery map.
+      ctx.world.discoveries.record({
+        kind: 'resource',
+        pos: r.value.pos,
+        label: block,
+        source: 'observed',
+        observedTick: r.observedTick,
+        confidence: 0.6,
+      });
       return pass({ data: { found: true, block, distance: Number(r.value.distance.toFixed(2)), in_reach: r.value.distance <= 4.5 } });
     }
     const ents = await ctx.world.entities(within);
@@ -196,6 +205,51 @@ const getWorldInfo: AtomicAction = {
   },
 };
 
+const recall: AtomicAction = {
+  contract: contract({
+    name: 'recall',
+    description:
+      'Places remembered in the discovery map near the bot (planning only; may be stale — revalidate by approaching). This is memory, never a verification source.',
+    params: {
+      type: 'object',
+      properties: {
+        radius: { type: 'number', default: 48 },
+        kind: { type: 'string', enum: ['resource', 'structure', 'waypoint', 'terrain'] },
+        include_stale: { type: 'boolean', default: false },
+        limit: { type: 'integer', default: 32 },
+      },
+      additionalProperties: false,
+    },
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const self = await ctx.world.status();
+    const now = isUnknown(self) ? 0 : self.observedTick;
+    if (now > 0) ctx.world.discoveries.markStaleBefore(now);
+    const around = isUnknown(self) ? undefined : self.value.pos;
+    const entries = ctx.world.discoveries
+      .list({
+        ...(around ? { around } : {}),
+        radius: Number(args.radius ?? 48),
+        ...(args.kind ? { kind: String(args.kind) as DiscoveryKind } : {}),
+        includeStale: args.include_stale === true,
+      })
+      .slice(0, Number(args.limit ?? 32));
+    return pass({
+      data: {
+        count: entries.length,
+        entries: entries.map((e) => ({
+          kind: e.kind,
+          label: e.label,
+          distance: around ? Number(distance(around, e.pos).toFixed(1)) : null,
+          stale: e.stale,
+          confidence: Number(e.confidence.toFixed(2)),
+        })),
+      },
+      evidence: [{ claim: 'discovery_map', source: 'inferred' }],
+    });
+  },
+};
+
 export const perceptionActions: AtomicAction[] = [
   observe,
   getSelfStatus,
@@ -208,4 +262,5 @@ export const perceptionActions: AtomicAction[] = [
   inspectContainer,
   lookupRecipe,
   getWorldInfo,
+  recall,
 ];
