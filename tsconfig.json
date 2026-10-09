@@ -9,6 +9,7 @@
     { "path": "packages/tasks" },
     { "path": "packages/adapters/telemetry" },
     { "path": "packages/adapters/mineflayer" },
+    { "path": "packages/adapters/client-mod" },
     { "path": "packages/interfaces/mcp" },
     { "path": "apps/agent" }
   ]

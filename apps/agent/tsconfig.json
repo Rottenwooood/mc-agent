@@ -14,6 +14,7 @@
     { "path": "../../packages/interfaces/mcp" },
     { "path": "../../packages/knowledge" },
     { "path": "../../packages/adapters/telemetry" },
-    { "path": "../../packages/adapters/mineflayer" }
+    { "path": "../../packages/adapters/mineflayer" },
+    { "path": "../../packages/adapters/client-mod" }
   ]
 }

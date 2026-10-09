@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mc-agent/adapters-mineflayer": "workspace:*",
+    "@mc-agent/adapters-client-mod": "workspace:*",
     "@mc-agent/adapters-telemetry": "workspace:*",
     "@mc-agent/contracts": "workspace:*",
     "@mc-agent/execution": "workspace:*",

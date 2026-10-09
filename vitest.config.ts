@@ -14,6 +14,7 @@ export default defineConfig({
       '@mc-agent/tasks': pkg('packages/tasks/src/index.ts'),
       '@mc-agent/adapters-telemetry': pkg('packages/adapters/telemetry/src/index.ts'),
       '@mc-agent/adapters-mineflayer': pkg('packages/adapters/mineflayer/src/index.ts'),
+      '@mc-agent/adapters-client-mod': pkg('packages/adapters/client-mod/src/index.ts'),
     },
   },
   test: {

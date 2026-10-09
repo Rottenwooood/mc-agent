@@ -5,18 +5,19 @@
 // low-frequency fallback), so perception is fresh without the model asking for it.
 
 import { MineflayerControlPort } from '@mc-agent/adapters-mineflayer';
+import { ClientModControlPort } from '@mc-agent/adapters-client-mod';
 import { TelemetryWorldPort } from '@mc-agent/adapters-telemetry';
 import { SurfaceShell, World } from '@mc-agent/world';
 import { ControlToken, ReflexShield } from '@mc-agent/execution';
 import { ToolRegistry, buildTools, type ToolContext } from '@mc-agent/interfaces-mcp';
 import { ActionLibrary, SkillLibrary } from '@mc-agent/knowledge';
-import type { EventCursor } from '@mc-agent/contracts';
+import type { ControlPort, EventCursor } from '@mc-agent/contracts';
 import { join } from 'node:path';
 
 export interface AppContext {
   username: string;
   world: World;
-  ctrl: MineflayerControlPort;
+  ctrl: ControlPort;
   token: ControlToken;
   reflex?: ReflexShield;
   shell: SurfaceShell;
@@ -74,7 +75,11 @@ function startMaintenance(world: World, shell: SurfaceShell): void {
 
 export async function createContext(opts: CreateOptions = {}): Promise<AppContext> {
   const username = opts.username ?? process.env.MC_USER ?? 'Bot';
-  const ctrl = new MineflayerControlPort({ username });
+  // Control backend: a protocol client (mineflayer) by default, or the local player of a real,
+  // open Minecraft client when MCAGENT_CONTROL=client-mod. Only the ControlPort backend changes.
+  const backend = process.env.MCAGENT_CONTROL ?? 'mineflayer';
+  const ctrl: ControlPort =
+    backend === 'client-mod' ? new ClientModControlPort() : new MineflayerControlPort({ username });
   await ctrl.connect();
 
   const world = new World(new TelemetryWorldPort(undefined, username));

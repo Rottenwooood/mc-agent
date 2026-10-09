@@ -20,6 +20,9 @@ importers:
 
   apps/agent:
     dependencies:
+      '@mc-agent/adapters-client-mod':
+        specifier: workspace:*
+        version: link:../../packages/adapters/client-mod
       '@mc-agent/adapters-mineflayer':
         specifier: workspace:*
         version: link:../../packages/adapters/mineflayer
@@ -47,6 +50,15 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(zod@4.6.5)
+
+  packages/adapters/client-mod:
+    dependencies:
+      '@mc-agent/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@mc-agent/foundation':
+        specifier: workspace:*
+        version: link:../../foundation
 
   packages/adapters/mineflayer:
     dependencies:
