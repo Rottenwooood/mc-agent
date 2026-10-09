@@ -62,6 +62,7 @@ async function reachableFor(ctx: ActionContext, o: WorldObject): Promise<boolean
 function objectBrief(o: WorldObject): Record<string, unknown> {
   return {
     handle: o.handle,
+    kind: INTERACTABLE.has(o.label) ? 'interactable' : isFluid(o.label) ? 'liquid' : 'block',
     label: o.label,
     size: o.size,
     dir: o.dir,
@@ -78,7 +79,7 @@ const view: AtomicAction = {
   contract: contract({
     name: 'view',
     description:
-      'Near per-block view: a cropped 3D array of the blocks exposed to air/water around the bot. Letters map (via legend) to block ids; "#" is a known buried cell; "." air/water; "?" fog; "@" the player. Compass-aligned (rows west→east, columns north→south, layers down→up). Only the box that contains blocks is returned (air margins cropped). Also lists the visible object handles.',
+      'Near per-block view: a cropped 3D array of the blocks exposed to air/water around the bot. Letters map (via legend) to block ids; "#" is a known buried cell; "." air/water; "?" fog; "@" the player. Compass-aligned (rows west→east, columns north→south, layers down→up). Only the box that contains blocks is returned (air margins cropped). Also lists nearby object handles (handle/kind/label/compass dir only — sizes are authoritative via scan_blocks or members(handle)).',
     params: {
       type: 'object',
       properties: { radius: { type: 'integer', default: 8 }, height: { type: 'integer', default: 4 } },
@@ -101,7 +102,14 @@ const view: AtomicAction = {
     const v = buildView(r.value, self, { radius, height, truncated: r.coverage.truncated });
     const objects = nearObjects(exposedCells(r.value), self)
       .slice(0, 24)
-      .map((o) => ({ ...objectBrief(o), kind: INTERACTABLE.has(o.label) ? 'interactable' : isFluid(o.label) ? 'liquid' : 'block' }));
+      .map((o) => ({
+        handle: o.handle,
+        kind: INTERACTABLE.has(o.label) ? 'interactable' : isFluid(o.label) ? 'liquid' : 'block',
+        label: o.label,
+        dir: o.dir,
+        edge_distance: o.edgeDistance,
+        touchable: o.touchable,
+      }));
     return pass({ data: { ...v, objects }, evidence: [{ claim: 'view', source: 'authoritative' }] });
   },
 };
@@ -127,7 +135,7 @@ const scanBlocks: AtomicAction = {
     params: {
       type: 'object',
       properties: {
-        match: { type: 'object', description: '{block}|{tag}|"any"' },
+        match: { description: 'block/tag selector {block}|{tag}, or "any" for a category scan' },
         radius: { type: 'number', default: 24 },
         neighbor: { type: 'string', enum: ['face', 'edge'], default: 'face' },
       },
@@ -145,15 +153,30 @@ const scanBlocks: AtomicAction = {
       max: [c[0] + radius + 1, c[1] + radius + 1, c[2] + radius + 1] as Vec3,
     };
     const mt = matchBlockIds(args.match);
-    let blockIds: string[] | undefined;
-    if (mt.kind === 'block') blockIds = [norm(mt.block)];
-    else if (mt.kind === 'tag') {
+    let blockIds: string[];
+    if (mt.kind === 'block') {
+      blockIds = [norm(mt.block)];
+    } else if (mt.kind === 'tag') {
       const tt = await ctx.world.tagTable();
       if (isUnknown(tt)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' });
       blockIds = tt.value.blocks[norm(mt.tag)] ?? [];
       if (blockIds.length === 0) return pass({ data: { blocks: [], interactables: [], entities: [], liquids: [], count: 0 } });
+    } else {
+      // "any" = category scan (ores via #*_ores, logs, interactables, fluids) — a bounded
+      // server-side filter, never a full exposed-face dump (which truncates at radius 24).
+      const tt = await ctx.world.tagTable();
+      const cat = new Set<string>();
+      if (!isUnknown(tt)) {
+        for (const [tag, ids] of Object.entries(tt.value.blocks)) if (/_ores$/.test(tag)) for (const id of ids) cat.add(id);
+        for (const id of tt.value.blocks['minecraft:logs'] ?? []) cat.add(id);
+      }
+      for (const id of INTERACTABLE) cat.add(id);
+      cat.add('minecraft:water');
+      cat.add('minecraft:lava');
+      blockIds = [...cat];
+      if (blockIds.length === 0) return pass({ data: { blocks: [], interactables: [], entities: [], liquids: [], count: 0 } });
     }
-    const r = await ctx.world.query(box, { exposedOnly: true, ...(blockIds ? { blockIds } : {}), maxItems: 40000 });
+    const r = await ctx.world.query(box, { exposedOnly: true, blockIds, maxItems: 40000 });
     if (isUnknown(r)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' });
     const solids = r.value.filter((x) => !isFluid(x.block));
     const fluidCells = r.value.filter((x) => isFluid(x.block));

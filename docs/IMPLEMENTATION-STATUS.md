@@ -14,7 +14,7 @@
 7. 每个提交可编译/可运行;维护 git,不留垃圾。
 
 ## 1. 设计文档(主依据)
-- `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约(事实两轴/谓词/`ActionResult`/`ActionContract`/`Method`)、L0–L5、**原子动作库(37)**、进程形态、Mod 契约、可视化、累计决策。
+- `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约(事实两轴/谓词/`ActionResult`/`ActionContract`/`Method`)、L0–L5、**原子动作库(见框架 §6.1)**、进程形态、Mod 契约、可视化、累计决策。
 - `docs/world-map-and-composition.md` — 表面壳+表面图、两层地图、通用查询、`replace`/`set_block`、**有界编排词表**、`explore`、拒绝的反模式。
 - `docs/eval-benchmark.md` — 实机 benchmark(种子隔离、agent 驱动、独立验收器、指标、消融)。
 - `docs/research/*` 为调研(07/15/13/11/14/04/06/02/16/17 优先);`minecraft-framework.md`/`minecraft-layering.md` 为**旧次要**参考。
@@ -25,8 +25,8 @@ apps/agent            # 装配 + 常驻进程(resident)+ 薄 MCP 桥(bridge)
 packages/contracts    # 冻结类型:Fact/Predicate/Target/ActionResult/ActionContract/Method/ports
 packages/foundation   # http/errors/config(外部能力最小基础设施)
 packages/world        # World:status/inventory/entities/blockAt/findNearestBlock/query(几何纯函数可测)
-packages/execution    # ControlToken + result 基元 + actions/(37 原子动作,含 Target 解析)
-packages/interfaces/mcp  # ToolRegistry + buildTools()(把 37 动作暴露为工具)
+packages/execution    # ControlToken + result 基元 + actions/(全量原子动作,含 Target 解析)
+packages/interfaces/mcp  # ToolRegistry + buildTools()(把全部动作暴露为工具)
 packages/adapters/telemetry   # WorldPort over 观测 Mod(权威 Fact / unknown)
 packages/adapters/mineflayer  # 全量 ControlPort(玩家合法动作)+ 客户端只读
 mods/server-observer  # Fabric 只读观测 Mod(数据契约)
@@ -40,7 +40,7 @@ scenarios/ tests/{semantics,integration} tools/ docs/
   - `@mc-agent/foundation` + `adapters-telemetry`(Fact/unknown)+ 非 LLM 工具 smoke。
   - `adapters-mineflayer`:`ControlPort` **全量**(movement/blocks/entities/inventory/containers/meta + raycast/recipes/worldInfo/containerContents)。
   - `@mc-agent/world`:status/inventory/entities/blockAt/findNearestBlock/query;**通用查询 `region`/`exposedFaces`/`standableSurfaces`/`connected`(连通分量)+ 官方标签匹配 + 纯函数单测**(2026-10-08 增补)。
-  - `@mc-agent/execution`:**37 个原子动作库**(统一 `Target`;`set_block`=两状态替换 + 隐式导航 + `set_block` 的 `allowModify` 脚手架开关)。
+  - `@mc-agent/execution`:**全量原子动作库 + run_method**(统一 `Target`;`set_block`=两状态替换 + 隐式导航 + `set_block` 的 `allowModify` 脚手架开关)。
   - `@mc-agent/interfaces/mcp`:`buildTools()` 暴露全部原子动作。
   - `apps/agent`:**常驻进程**(单 body,Unix socket `/tmp/opencode/mc-agent.sock`)+ **薄 MCP 桥**(解耦)。
 - **Gate G1 通过(2026-10-08)**:真实 LLM 经 MCP 在真实服务器上**自主**砍下一根原木;由**独立验收器**(直接读观测 Mod 的 `block_changed` 事件 + 权威背包快照,**不复用系统谓词/结论**)判定:`minecraft:mangrove_log@(7,76,26)` 被 `actor=Bot` 破坏且背包原木 4→5。验收脚本:`tests/eval/g1-verifier.mjs`(`collect` / `verify`,exit 0=pass)。

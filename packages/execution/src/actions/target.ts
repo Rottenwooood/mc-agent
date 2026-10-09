@@ -3,7 +3,7 @@
 
 import type { Target, Vec3 } from '@mc-agent/contracts';
 import { directionStep, isUnknown } from '@mc-agent/contracts';
-import { distance, parseHandle } from '@mc-agent/world';
+import { connectedComponent, distance, expandBox, parseHandle } from '@mc-agent/world';
 import type { ActionContext } from './types.js';
 
 export interface Resolved {
@@ -26,14 +26,20 @@ async function resolveObject(ctx: ActionContext, ref: string): Promise<ResolveRe
   const h = parseHandle(ref);
   if (!h) return { ok: false, reason: `bad handle: ${ref}` };
   if (h.kind === 'entity') return { ok: true, value: { entityId: h.label, subject: ref } };
-  const r = await ctx.world.connected(h.anchor, { kind: 'block', block: h.label }, { radius: 8 });
+  const radius = 24;
+  const bounded = {
+    min: [h.anchor[0] - radius, h.anchor[1] - radius, h.anchor[2] - radius] as Vec3,
+    max: [h.anchor[0] + radius, h.anchor[1] + radius, h.anchor[2] + radius] as Vec3,
+  };
+  const r = await ctx.world.query(expandBox(bounded, 1), { blockIds: [h.label], maxItems: 60000 });
   if (isUnknown(r)) return { ok: false, reason: 'not observed' };
-  if (r.value.size === 0) return { ok: false, reason: 'expired: object no longer present' };
+  const comp = connectedComponent(r.value, h.anchor, (b) => b === h.label, { bounded });
+  if (comp.size === 0) return { ok: false, reason: 'expired: object no longer present' };
   const self = await selfPos(ctx);
-  let best = r.value.cells[0]!.pos;
+  let best = comp.cells[0]!.pos;
   if (self) {
     let bd = distance(self, best);
-    for (const c of r.value.cells) {
+    for (const c of comp.cells) {
       const d = distance(self, c.pos);
       if (d < bd) {
         bd = d;

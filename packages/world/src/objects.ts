@@ -35,7 +35,7 @@ export const entityHandle = (id: string): string => `ent:${id}`;
 export function parseHandle(ref: string): { kind: ObjectKind; label: string; anchor: Vec3 } | null {
   const e = /^ent:(.+)$/.exec(ref);
   if (e) return { kind: 'entity', label: e[1]!, anchor: [0, 0, 0] };
-  const m = /^obj:([a-z]+):([^:]+):(-?\d+),(-?\d+),(-?\d+)$/.exec(ref);
+  const m = /^obj:([a-z]+):(.+):(-?\d+),(-?\d+),(-?\d+)$/.exec(ref);
   if (!m) return null;
   return { kind: m[1] as ObjectKind, label: m[2]!, anchor: [Number(m[3]), Number(m[4]), Number(m[5])] };
 }
@@ -206,7 +206,7 @@ export function buildView(
       for (let z = lo[2]; z <= hi[2]; z++) {
         const block = byKey.get(`${x},${y},${z}`);
         if (x === Math.round(self[0]) && y === Math.round(self[1]) && z === Math.round(self[2])) row += '@';
-        else if (block === undefined) row += AIR;
+        else if (block === undefined) row += truncated ? FOG : AIR;
         else if (isFluid(block)) row += legendFor(block);
         else if (exposed.has(`${x},${y},${z}`)) row += legendFor(block);
         else row += SOLID;

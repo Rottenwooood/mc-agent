@@ -3,7 +3,7 @@
 
 import type { Predicate, Tri } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
-import { parseHandle } from '@mc-agent/world';
+import { connectedComponent, expandBox, parseHandle } from '@mc-agent/world';
 import type { ActionContext } from '@mc-agent/execution';
 
 const norm = (b: string): string => (b.includes(':') ? b : 'minecraft:' + b);
@@ -83,9 +83,14 @@ export async function evalPredicate(ctx: ActionContext, pred: Predicate): Promis
       const es = await ctx.world.entities(64);
       return isUnknown(es) ? undefined : es.value.some((e) => e.id === h.label);
     }
-    const r = await ctx.world.connected(h.anchor, { kind: 'block', block: h.label }, { radius: 32 });
+    const radius = 24;
+    const bounded = {
+      min: [h.anchor[0] - radius, h.anchor[1] - radius, h.anchor[2] - radius] as [number, number, number],
+      max: [h.anchor[0] + radius, h.anchor[1] + radius, h.anchor[2] + radius] as [number, number, number],
+    };
+    const r = await ctx.world.query(expandBox(bounded, 1), { blockIds: [h.label], maxItems: 60000 });
     if (isUnknown(r)) return undefined;
-    const size = r.value.size;
+    const size = connectedComponent(r.value, h.anchor, (b) => b === h.label, { bounded }).size;
     switch (pred.predicate) {
       case 'gone':
         return size === 0;

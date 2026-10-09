@@ -12,7 +12,7 @@ const runMethodTool: ToolDef = {
   name: 'run_method',
   title: 'run_method',
   description:
-    'Execute a bounded composed method: declared steps over the atomic actions. Control ops: sequence/for_each/repeat/branch. Set exprs: set_difference/component/region. Sets are recomputed fresh (fill only what is missing); the whole run is judged by its terminal postconditions. Result is a self-explaining aggregate with subResults.',
+    'Execute a bounded composed method: declared steps over the atomic actions. Control ops: sequence/for_each/repeat/branch. Set exprs: members(handle) / surface(handle) / nearest(match) / area(anchor,size,offset) / set_difference (region/box_cells kept as an unguided fallback). Targets may be object handles (from view/scan_blocks), compass directions, or nearest-block. Sets are recomputed fresh (fill only what is missing); the whole run is judged by its terminal postconditions (block@, inv:, self., entity#, and object handles obj:/ent:). Result is a self-explaining aggregate with subResults.',
   inputSchema: {
     type: 'object',
     properties: {

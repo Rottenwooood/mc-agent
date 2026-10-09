@@ -4,7 +4,7 @@
 
 import type { Box, Filter, SetExpr, Vec3 } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
-import { connectedComponent, expandBox, exposedCells, key, parseHandle } from '@mc-agent/world';
+import { connectedComponent, expandBox, key, parseHandle } from '@mc-agent/world';
 import type { ActionContext } from '@mc-agent/execution';
 import { resolveArg, type Vars } from './args.js';
 
@@ -32,18 +32,6 @@ export async function filterPredicate(ctx: ActionContext, filter?: Filter): Prom
   return () => true;
 }
 
-function bboxOf(cells: readonly Vec3[]): Box | null {
-  if (cells.length === 0) return null;
-  const first = cells[0]!;
-  let min: Vec3 = [first[0], first[1], first[2]];
-  let max: Vec3 = [first[0], first[1], first[2]];
-  for (const p of cells) {
-    min = [Math.min(min[0], p[0]), Math.min(min[1], p[1]), Math.min(min[2], p[2])];
-    max = [Math.max(max[0], p[0]), Math.max(max[1], p[1]), Math.max(max[2], p[2])];
-  }
-  return { min, max };
-}
-
 function cellsInBox(box: Box): Vec3[] {
   const out: Vec3[] = [];
   for (let x = box.min[0]; x <= box.max[0]; x++) {
@@ -54,13 +42,23 @@ function cellsInBox(box: Box): Vec3[] {
   return out;
 }
 
+/** All cells of the connected object at `anchor` with block id `label`, via a server-side filtered query. */
+async function objectCells(ctx: ActionContext, label: string, anchor: Vec3): Promise<Vec3[]> {
+  const radius = 24;
+  const box: Box = {
+    min: [anchor[0] - radius, anchor[1] - radius, anchor[2] - radius],
+    max: [anchor[0] + radius, anchor[1] + radius, anchor[2] + radius],
+  };
+  const r = await ctx.world.query(expandBox(box, 1), { blockIds: [label], maxItems: 60000 });
+  if (isUnknown(r)) return [];
+  return connectedComponent(r.value, anchor, (b) => b === label, { bounded: box }).cells.map((c) => c.pos);
+}
+
 /** All cells of the object a handle points at (re-validated fresh). */
 async function handleCells(ctx: ActionContext, ref: string): Promise<Vec3[]> {
   const h = parseHandle(ref);
   if (!h) return [];
-  const r = await ctx.world.connected(h.anchor, { kind: 'block', block: h.label }, { radius: 32 });
-  if (isUnknown(r)) return [];
-  return r.value.cells.map((c) => c.pos);
+  return objectCells(ctx, h.label, h.anchor);
 }
 
 async function resolveAnchor(ctx: ActionContext, anchor: unknown, vars: Vars): Promise<Vec3 | null> {
@@ -87,15 +85,31 @@ async function resolveAnchor(ctx: ActionContext, anchor: unknown, vars: Vars): P
   return null;
 }
 
-async function nearestObjectCells(ctx: ActionContext, pred: (b: string) => boolean): Promise<Vec3[]> {
+/** Resolve a filter to a concrete block-id list for a server-side filtered query (null = no filter). */
+async function filterBlockIds(ctx: ActionContext, filter?: Filter): Promise<string[] | null> {
+  if (!filter) return null;
+  if (typeof filter === 'string') return [norm(filter)];
+  if (filter.anyOf && filter.anyOf.length > 0) return filter.anyOf.map(norm);
+  if (filter.block) return [norm(filter.block)];
+  if (filter.tag) {
+    const tt = await ctx.world.tagTable();
+    return isUnknown(tt) ? [] : (tt.value.blocks[norm(filter.tag)] ?? []);
+  }
+  return null;
+}
+
+async function nearestObjectCells(ctx: ActionContext, filter?: Filter): Promise<Vec3[]> {
   const self = await ctx.world.selfPos();
   if (!self) return [];
+  const ids = await filterBlockIds(ctx, filter);
+  if (ids && ids.length === 0) return [];
+  const pred = await filterPredicate(ctx, filter);
   const radius = 32;
   const box: Box = {
     min: [Math.round(self[0]) - radius, Math.round(self[1]) - radius, Math.round(self[2]) - radius],
     max: [Math.round(self[0]) + radius, Math.round(self[1]) + radius, Math.round(self[2]) + radius],
   };
-  const r = await ctx.world.query(expandBox(box, 1), { exposedOnly: true, maxItems: 40000 });
+  const r = await ctx.world.query(expandBox(box, 1), { exposedOnly: true, ...(ids ? { blockIds: ids } : {}), maxItems: 60000 });
   if (isUnknown(r)) return [];
   const matches = r.value.filter((c) => pred(c.block));
   if (matches.length === 0) return [];
@@ -119,16 +133,22 @@ export async function evalSet(ctx: ActionContext, set: SetExpr, vars: Vars): Pro
     case 'members':
       return handleCells(ctx, String(resolveArg(set.handle, vars)));
     case 'surface': {
-      const members = await handleCells(ctx, String(resolveArg(set.handle, vars)));
-      const box = bboxOf(members);
-      if (!box) return [];
+      const h = parseHandle(String(resolveArg(set.handle, vars)));
+      if (!h) return [];
+      const members = await objectCells(ctx, h.label, h.anchor);
+      if (members.length === 0) return [];
       const setOf = new Set(members.map((p) => key(p)));
-      const r = await world.query(expandBox(box, 1));
+      const radius = 24;
+      const box: Box = {
+        min: [h.anchor[0] - radius, h.anchor[1] - radius, h.anchor[2] - radius],
+        max: [h.anchor[0] + radius, h.anchor[1] + radius, h.anchor[2] + radius],
+      };
+      const r = await world.query(expandBox(box, 1), { exposedOnly: true, blockIds: [h.label] });
       if (isUnknown(r)) return [];
-      return exposedCells(r.value).map((c) => c.pos).filter((p) => setOf.has(key(p)));
+      return r.value.map((c) => c.pos).filter((p) => setOf.has(key(p)));
     }
     case 'nearest':
-      return nearestObjectCells(ctx, await filterPredicate(ctx, set.match));
+      return nearestObjectCells(ctx, set.match);
     case 'area': {
       const base = await resolveAnchor(ctx, set.anchor, vars);
       if (!base) return [];
