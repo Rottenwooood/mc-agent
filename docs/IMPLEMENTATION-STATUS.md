@@ -1,106 +1,123 @@
 # 实现状态与交接(压缩上下文后先读这份)
 
-> 目的:压缩上下文前的**交接快照**。铁律与设计见 `mcp-implementation-framework.md`(含铁律、M0–M6、契约、动作库)、`world-map-and-composition.md`、`eval-benchmark.md`。日期:2026-10-08。
+> 本文件是**交接快照**:任何人(或压缩后的下一次会话)读完它 + 设计文档即可继续。
+> 设计主依据:`mcp-implementation-framework.md`(铁律、M0–M6+gate、契约、动作库)、`world-map-and-composition.md`(感知/地图/组合)、`eval-benchmark.md`(评测)。
+> 更新日期:**2026-10-09**。
 
 ---
 
 ## 0. 铁律(必须遵守)
-1. **不为中间测试写非正式代码**;每次实现按设计文档做"**已知最正确的最终实现**",哪怕中间没法跑测试。禁止 stub / 手写高层顶替组合 / 为过 gate 临时简化。
-2. **原子动作是几十个、覆盖各领域;架构围绕完整动作库**,不能为几个零散动作把设计做窄。
-3. **"完成"= 通过 gate**(真实 LLM 经 MCP、真实 MC、独立验收);编译/单测/工具 smoke **不算完成**;**薄 ≠ 完成**。
-4. **测试用 subagent 执行。**
-5. **坐标下沉**:模型面 = 语义(名字/对象引用);坐标仅作读取信息或显式 `cell` 逃生。
+
+1. **不为中间测试写非正式代码**;每次实现按设计文档做"已知最正确的最终实现",哪怕中间跑不了测试。禁止 stub / 手写高层顶替组合 / 为过 gate 临时简化。
+2. **原子动作是几十个、覆盖各领域**;架构围绕完整动作库,不为几个零散动作把设计做窄。
+3. **"完成" = 通过 gate**:真实 LLM 经 MCP、在真实 MC 上自主完成任务、由独立验收器判定。编译 / 单测 / 工具 smoke **都不算完成**;**薄 ≠ 完成**。
+4. **测试用 subagent 执行**(本机 OpenCode 未把 mc-agent 注入会话,故实测由主 agent 经 MCP 桥直接驱动;见 §6)。
+5. **坐标下沉**:模型面 = 语义(对象句柄 / 名字);坐标仅作读取信息或显式 `cell` 逃生,默认不引导。
 6. **组合由 agent 用有界词表完成**,不手写高层动作。
-7. 每个提交可编译/可运行;维护 git,不留垃圾。
+7. 每个提交可编译 / 可运行;维护 git,不留垃圾。
 
 ## 1. 设计文档(主依据)
-- `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约(事实两轴/谓词/`ActionResult`/`ActionContract`/`Method`)、L0–L5、**原子动作库(见框架 §6.1)**、进程形态、Mod 契约、可视化、累计决策。
-- `docs/world-map-and-composition.md` — 表面壳+表面图、两层地图、通用查询、`replace`/`set_block`、**有界编排词表**、`explore`、拒绝的反模式。
+
+- `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约(Fact/Predicate/`ActionResult`/`ActionContract`/`Method`)、L0–L5、**原子动作库(§6.1)**、进程形态、Mod 契约、可视化、累计决策。
+- `docs/world-map-and-composition.md` — 表面壳+表面图、两层地图、通用查询、`set_block` 两状态替换、**有界编排词表**、**§12 感知与寻址(定稿)**、拒绝的反模式。
 - `docs/eval-benchmark.md` — 实机 benchmark(种子隔离、agent 驱动、独立验收器、指标、消融)。
-- `docs/research/*` 为调研(07/15/13/11/14/04/06/02/16/17 优先);`minecraft-framework.md`/`minecraft-layering.md` 为**旧次要**参考。
+- `docs/research/*` — 调研(优先 07/15/13/11/14/04/06/02/16/17);`minecraft-framework.md`/`minecraft-layering.md` 为**旧次要**参考。
 
 ## 2. 仓库结构(pnpm workspace + tsc -b + vitest)
+
 ```
-apps/agent            # 装配 + 常驻进程(resident)+ 薄 MCP 桥(bridge)
-packages/contracts    # 冻结类型:Fact/Predicate/Target/ActionResult/ActionContract/Method/ports
-packages/foundation   # http/errors/config(外部能力最小基础设施)
-packages/world        # World:status/inventory/entities/blockAt/findNearestBlock/query(几何纯函数可测)
-packages/execution    # ControlToken + result 基元 + actions/(全量原子动作,含 Target 解析)
-packages/knowledge    # 方法库(L4):版本/统计/干预式 net-effect/入库门禁(种子隔离)/回退
-packages/interfaces/mcp  # ToolRegistry + buildTools()(把全部动作暴露为工具)
+apps/agent                    # 装配 + 常驻进程(resident)+ 薄 MCP 桥(bridge)
+packages/contracts            # 冻结类型:Fact/Predicate/Target/ActionResult/ActionContract/Method/Skill/ports
+packages/foundation           # http/errors/config(外部能力最小基础设施)
+packages/world                # World:status/inventory/entities/blockAt/findNearestBlock/query + 通用查询 + 表面壳 + 发现图
+packages/execution            # ControlToken + result 基元 + L1 reflex + L3 契约引擎 + actions/(全量原子动作)
+packages/knowledge            # L4 方法库:版本/统计/干预式 net-effect/入库门禁(种子隔离)/回退
+packages/tasks                # 有界词表执行器(run_method)+ 技能执行(run_skill)
+packages/interfaces/mcp       # ToolRegistry + buildTools()(全部动作 + run_method + 技能工具)
 packages/adapters/telemetry   # WorldPort over 观测 Mod(权威 Fact / unknown)
 packages/adapters/mineflayer  # 全量 ControlPort(玩家合法动作)+ 客户端只读
-mods/server-observer  # Fabric 只读观测 Mod(数据契约)
-scenarios/ tests/{semantics,integration} tools/ docs/
+mods/server-observer          # Fabric 只读观测 Mod(数据契约)
+scenarios/{seeds,skills}/     # 种子清单 + agent 造出的技能模板
+tests/{semantics,integration,eval}/   tools/   docs/
 ```
 
-## 3. 已完成
-- **M0**:workspace + `@mc-agent/contracts`(冻结类型 + Kleene 三值)+ 语义单测。
-- **M1 底盘**:
-  - `mods/server-observer` 数据契约:`GET /health`、`POST /snapshot`(单 tick 原子 `snapshot_seq`+`coverage`+每事实 `obs_seq/observed_tick`)、`GET /events`(`epoch`/`cursor`/`has_more`/`reset_required`)、`GET /tags`(服务端权威的官方方块/实体标签表;191 方块标签/16 实体标签,`#logs` 已实测解析)。**已真实服务器 smoke 通过**。
-  - `@mc-agent/foundation` + `adapters-telemetry`(Fact/unknown)+ 非 LLM 工具 smoke。
-  - `adapters-mineflayer`:`ControlPort` **全量**(movement/blocks/entities/inventory/containers/meta + raycast/recipes/worldInfo/containerContents)。
-  - `@mc-agent/world`:status/inventory/entities/blockAt/findNearestBlock/query;**通用查询 `region`/`exposedFaces`/`standableSurfaces`/`connected`(连通分量)+ 官方标签匹配 + 纯函数单测**(2026-10-08 增补)。
-  - `@mc-agent/execution`:**全量原子动作库 + run_method**(统一 `Target`;`set_block`=两状态替换 + 隐式导航 + `set_block` 的 `allowModify` 脚手架开关)。
-  - `@mc-agent/interfaces/mcp`:`buildTools()` 暴露全部原子动作。
-  - `apps/agent`:**常驻进程**(单 body,Unix socket `/tmp/opencode/mc-agent.sock`)+ **薄 MCP 桥**(解耦)。
-- **Gate G1 通过(2026-10-08)**:真实 LLM 经 MCP 在真实服务器上**自主**砍下一根原木;由**独立验收器**(直接读观测 Mod 的 `block_changed` 事件 + 权威背包快照,**不复用系统谓词/结论**)判定:`minecraft:mangrove_log@(7,76,26)` 被 `actor=Bot` 破坏且背包原木 4→5。验收脚本:`tests/eval/g1-verifier.mjs`(`collect` / `verify`,exit 0=pass)。
-- **Gate G2 通过(2026-10-08)**:真实 LLM 经 MCP 在真实服务器上**自主**完成"挖矿脉 + 建小结构",并在**外部扰动**下**局部修复**,由独立验收器判定(脚本 `tests/eval/g2-verifier.mjs`):
-  - **挖矿脉**:`coal_ore` 箱全部清空(独立快照 `ore_left=0`),背包煤 **0→4**(真实挖掘,非 `/give`);
-  - **建小结构**:`(4,76,25)-(5,76,26)` 2×2 地板全部 `mangrove_planks`(体素集合差=空);
-  - **扰动+局部修复**:`Setup`(另一 actor)破坏 `(4,76,25)`(事件 seq 10,`mangrove_planks→air`),随后 agent **重算缺失集**(`set_difference(box_cells, region(planks))` → 仅该 1 格)并补回(事件 seq 11,`air→mangrove_planks`,`actor=Bot`);最终块恢复、`verify-repair` 通过。agent 用 `run_method` 的**目标条件化**(进入重算、只补缺失)完成,非逐字重放。
-  - 观测 Mod 现已**同时记录破坏与放置**(`PlayerBlockBreakEvents` + `BlockItem.place` mixin),故"修复放置"有**独立事件**证据(seq 10 外部破坏 → seq 11 Bot 放置)。
-- **M2.5 感知/寻址返工的门槛(2026-10-09,新工具面,独立验收器)**:真实 LLM 经 MCP 桥(`tools/list` = 40 工具,含 `view`/`scan_blocks`/`relations`/`run_method`)在真实服务器上完成:
-  - **G1 通过**:`scan_blocks{tag:logs}` 取对象句柄 → `run_method` + `members(handle)` 破坏 `(6,74,26)` → `go_to` 拾取;`g1-verifier` 判定 `pass:true`(1 次 Bot 破坏原木,背包 5→6,exit 0)。
-  - **G2 通过**:①挖矿脉——`go_to` 对象句柄(自动掘进到 `(10,53,5)`)+ `run_method members(coal_ore handle)` 挖空 10 格,`verify-mine` pass(`ore_left:0`,煤 4→14);②建造——`run_method` + `area(anchor:'self'/[x,y,z], size)` 目标条件化建 2×2 木板地板 `(6,73,26)-(7,73,27)`,`verify-build` pass(4/4);③外部扰动 + 局部修复——`Setup` 破坏 `(7,73,27)`(seq 54)→ agent `run_method area` 重算缺失集只补 1 格(seq 55),`verify-repair` pass(外部破坏→Bot 补回,exit 0)。
-  - **门槛中发现并修复的真实缺陷**:(a) `parseHandle` 正则拒绝含冒号的标签(所有 `minecraft:*` 句柄失效);(b) `members/surface/nearest` 及对象后置走**不过滤**整块查询(radius 32)超上限→空,改**服务端按 id 过滤**;(c) `scan_blocks match:"any"` 拉全部暴露面在 radius 24 截断,改**分类扫描**(ores/logs/interactables/fluids);(d) `view` 的 `?` 黑雾未实现,`view` 对象 size 与再校验不一致;(e) `area(anchor:'self')` 用浮点玩家坐标生成非整数格,改**取整**。
-  - 已知**瞬态**(非系统性):刚 `go_to` 完仍在移动时立即放置,偶发把方块放到相邻格;静止放置受控复现均正确。
-- **M3 技能库与入库门禁的门槛 G3(2026-10-09,真实 LLM 经 MCP,独立验收器)**:新增 `@mc-agent/knowledge`(方法库:版本/统计/干预式 net-effect/入库门禁(硬种子隔离)/回退)+ 工具 `define_skill`/`list_skills`/`run_skill`/`promote_skill`/`rollback_skill`(工具面 **45**)+ 种子隔离设施(`scenarios/seeds/{train,val,test}.txt`、`tools/reset-world.sh <seed>`)。
-  - agent 造高层技能 `get_wood`(= `for_each(nearest(stripped_oak_log)) set_block air` + 收尾 `wait`,后置 `inv:stripped_oak_log>=1`),另造 overfit 变体 v2(同步骤、后置 `>=2`)。
-  - 门禁:train(1001)/val(2001,2002)上 v1、v2 均 pass → `promote v1` 判定 `admit`(`train 1/1, val 2/2`);**留出** test(9001)重放 v1 **pass**。
-  - `promote v2`(train+val pass)→ 留出 test 重放 v2 **fail**(fixture 只有 1 格)→ `rollback v2`(`from:2 → to:1`)。
-  - 独立验收器 `tests/eval/g3-verifier.mjs`:**独立重算门禁**(从原始 per-seed 记录)+ 校验不变量,全部通过(exit 0):v1 已入库、v2 已入库后被标 broken、回退存在、`validation` 的 train/val 集合**不含任何 test 种子**(种子隔离)、active 回到 v1。
-  - 运行器 `tests/eval/g3-runner.mjs` 只做:重置世界/放 fixture/经 MCP 调工具/记录;技能内容与判定均非 runner 编码。
-- 关键根因修复(commit `6b7547f`):**控制令牌不可重入导致的死锁** —— 引擎已用令牌包住动作,而每个动作内部**又**调用一次 `ctx.token.run`,嵌套获取令牌在 60s 守卫超时前一直阻塞 → 表现为 `run_method`/`set_block`/`go_to` 全面超时。令牌改为**同 async 上下文可重入**(`AsyncLocalStorage`),动作立即执行(`set_block` ~100ms、`run_method` ~ms)。
-- 最近提交:`7ad02c5`(docs 动作库)、`c945616`(全量动作库)、`2589559`(Target+全量控制面)、`e097fb1`(resident/bridge)、`bbaccb7`/`e6450ba`/`f501665`/`2fda71c`(M1 各步)、`d327b97`(M0)。
-- G1 过程中发现并修复的真实缺陷:**(a)** 桥与常驻进程的连接在常驻重启后失效 → 桥改为**按需重连**;**(b)** 观测/只读工具被控制令牌阻塞、卡住的动作可永久占用身体 → 读操作改为**不占令牌**,所有动作加**硬超时并在超时后释放控制**,客户端每个操作也加了超时;**(c)** 区域查询在物品上限处**静默截断**导致"最近方块"报错(把 1.25 格的木头顶成 48.5)→ 按方块 id 在服务端过滤并显式处理截断。
-- **旧原型整体存档在分支 `proto/mcp-runtime`**(master 无残留)。
+## 3. 里程碑状态
 
-## 4. 构建 / 测试 / 运行
+| 里程碑 | 状态 | Gate |
+|---|---|---|
+| **M0** workspace + `contracts` + 纯函数单测 | ✅ 完成 | (基础设施,不称完成) |
+| **M1** Mod 契约 / telemetry / mineflayer / world 最小 / execution 最小 / interfaces / apps | ✅ 完成 | **G1** ✅ |
+| **M2** 通用查询 + 表面壳 + 两层地图 + L1/L3 + 有界词表 | ✅ 完成 | **G2** ✅ |
+| **M2.5** 感知/寻址返工(句柄 + 罗盘 + `view`/`scan_blocks`) | ✅ 完成 | **G1/G2 复验** ✅ |
+| **M3** 技能库 + 入库门禁 + net-effect + 回退 | ✅ 完成 | **G3** ✅ |
+| **M4** interfaces 动态注册 + `tools/list_changed` + 可视化 | ⏭ 下一步 | G4 |
+| **M5** 实机 benchmark(runner + 独立验收器 + 指标 + 消融)+ scenarios | ⬜ 待办 | GF |
+| **M6** `explore` 持续动作 + 视觉 + 课程 | ⬜ 待办 | 各自 gate |
+
+顺序:M0→M1→M2→M3→M4→M5,前一步 gate 通过才进下一步。
+
+## 4. 当前能力面(已实现)
+
+- **工具面 = 45 个**(见框架 §6.1)。要点:
+  - **感知**:`view`(近处逐方块、裁剪到含方块的长方体、暴露面字母/内部`#`/黑雾`?`/玩家`@`、罗盘对齐)、`scan_blocks`(暴露连通同类方块**聚成对象**:句柄 + size + 中心/边缘距离 + 罗盘方位 + touchable/reachable;含可互动/实体/液体;默认半径 24;Mod `exposed_only` 服务端过滤)、`relations`(兜底)、`recall`(记忆,仅规划)。
+  - **地址模型**:`object(句柄) | relative(罗盘) | block | entity | item | container | cell(次要)`;句柄在每次使用**重校验**;罗盘不绑朝向。
+  - **编排**:`run_method`(有界词表:sequence/for_each/repeat/branch;集合 `members/surface/nearest/area/set_difference`,绝对方框 `region/box_cells` 兜底);**目标条件化**(重算缺失集、只补缺失),终止后置整体判定。
+  - **技能/进化**:`define_skill`/`list_skills`/`run_skill`/`promote_skill`/`rollback_skill`(`knowledge` 库;门禁 + 版本回退)。
+- **L4 方法库**(`@mc-agent/knowledge`):命名/版本化技能(`Method` + 统计 + 校验),JSON 持久化(`MCAGENT_SKILLS`,默认 `<cwd>/.mc-agent/skills.json`,变更自动落盘);**入库门禁**只看 train+val 的**不同种子**,**test 种子绝不参与选择**(结构上只数 train/val);干预式 net-effect(`repair/regression`);`rollback` 回到上一个 verified 并标记坏版本 `broken`。
+- **观测 Mod**:`/health`、`/snapshot`(单 tick 原子 + `coverage` + 每事实 `obs_seq/observed_tick`,支持 `exposed_only` 与 `filters.block_ids`)、`/events`(破坏**与放置**,`epoch/cursor/reset_required`,含 `actor`)、`/tags`(服务端权威官方标签表)。
+- **进程**:常驻进程(单 body,Unix socket `/tmp/opencode/mc-agent.sock`)+ 薄 MCP 桥(按需重连 / 可重启);观测 HTTP `127.0.0.1:8765`。
+
+## 5. 门槛证据(独立验收器,均 exit 0)
+
+- **G1(砍 1 根原木入手)** — `tests/eval/g1-verifier.mjs`。`block_changed`(actor=Bot,log→air)+ 背包原木增量,两独立证据。
+- **G2(挖矿脉 + 建小结构 + 外部扰动 + 局部修复)** — `tests/eval/g2-verifier.mjs`(`verify-mine`/`verify-build`/`verify-repair`)。修复证据 = 外部 actor 破坏 → Bot 重算缺失集后补回(两条独立事件)。
+- **M2.5 复验(新感知/寻址面)** — 用 `view`/`scan_blocks`/句柄/罗盘/`run_method` 新集合重跑 G1、G2,均通过。
+- **G3(技能入库门禁)** — `tests/eval/g3-runner.mjs` + `tests/eval/g3-verifier.mjs`:
+  - agent 造 `get_wood`(`for_each(nearest(stripped_oak_log)) set_block air` + 收尾 `wait`;后置 `inv:stripped_oak_log>=1`)与 overfit 变体 v2(同步骤,后置 `>=2`)。
+  - train(1001)/val(2001,2002)记录 → `promote v1` 判定 `admit`(`train 1/1, val 2/2`)→ 留出 test(9001)重放 v1 **pass**。
+  - `promote v2`(train+val pass)→ 留出 test 重放 v2 **fail** → `rollback v2`(`from:2 → to:1`)。
+  - 验收器**独立重算门禁**(从原始 per-seed 记录)并校验:入库/坏版本 broken/回退存在/**validation 的 train/val 不含任何 test 种子**/active 回到 v1 —— 全部通过。
+- **门槛中修复的真实缺陷**:`parseHandle` 拒绝含冒号标签(句柄全失效);`members/surface/nearest` 与对象后置走不过滤整块查询超上限(改服务端按 id 过滤);`scan_blocks match:"any"` 截断(改分类扫描);`view` 黑雾未实现、size 口径不一致;`area(anchor:'self')` 浮点生成非整数格(改取整);更早:控制令牌不可重入死锁(commit `6b7547f`,改 `AsyncLocalStorage` 可重入);桥重启后失效(改按需重连);只读工具被令牌阻塞(改不占令牌 + 硬超时)。
+- **已知瞬态(非系统性)**:刚 `go_to` 完仍在移动时立即放置,偶发落到相邻格;静止放置受控复现均正确。
+
+## 6. 构建 / 测试 / 运行
+
 ```sh
-pnpm build                 # tsc -b,全部包
-pnpm test                  # vitest(语义单测 + integration 工具 smoke;smoke 需服务器在跑)
-pnpm smoke:tool            # 仅 tests/integration(需真实服务器)
+pnpm build        # tsc -b,全部包
+pnpm test         # vitest(语义单测 + integration 工具 smoke;smoke 需服务器在跑)
+pnpm smoke:tool   # 仅 tests/integration(需真实服务器)
 
-tools/server-up.sh         # 起 Fabric 服务器 + 观测 Mod(HTTP 127.0.0.1:8765)
-node apps/agent/dist/main-resident.js   # 常驻进程(连 bot 'Bot',监听 socket)
-node apps/agent/dist/main-bridge.js     # 薄桥(OpenCode 会按会话拉起)
-tools/reset-world.sh <seed>             # 按种子重置世界(硬种子隔离)
-node tests/eval/g3-runner.mjs           # G3:定义→训练/验证→入库→留出重放→回退(agent 经 MCP)
-node tests/eval/g3-verifier.mjs         # G3 独立验收器(独立重算门禁 + 隔离/回退不变量)
+tools/server-up.sh                       # 起 Fabric 服务器 + 观测 Mod(HTTP 127.0.0.1:8765)
+node apps/agent/dist/main-resident.js    # 常驻进程(连 bot 'Bot',监听 socket)
+node apps/agent/dist/main-bridge.js      # 薄 MCP 桥(OpenCode 按会话拉起)
+tools/reset-world.sh <seed>              # 按种子重置世界(硬种子隔离:停服/删 world/设 level-seed/重启/等 health)
+node tests/eval/g3-runner.mjs            # G3 全流程(agent 经 MCP)
+node tests/eval/g3-verifier.mjs          # G3 独立验收器
 ```
-- OpenCode 的 `~/.config/opencode/opencode.json` 里 `mc-agent` MCP:
-  `command: ["node","/home/c6h4o2/dev/mc-agent/apps/agent/dist/main-bridge.js"], enabled:true`。
-- 桥连不上 socket 时会 detached 起 resident;多会话共享**同一个** bot(避免 duplicate_login)。桥在 socket 断开后**按需重连**(常驻进程可重启)。
-- **独立验收(非 LLM smoke 之外)**:
+
+- **MCP 配置**:`~/.config/opencode/opencode.json` 的 `mc-agent` → `command: ["node","/home/c6h4o2/dev/mc-agent/apps/agent/dist/main-bridge.js"], enabled:true`。**本机 OpenCode 未把 mc-agent 注入会话/子会话**(subagent 也拿不到),故实测经 **MCP 桥的 stdio JSON-RPC** 直接驱动(与工具契约同源)。桥连不上 socket 时会 detached 起 resident;多会话共享同一个 bot(避免 duplicate_login)。
+- **种子**:`scenarios/seeds/train.txt`=1001,1002;`val.txt`=2001,2002;`test.txt`=9001(**test 只用于最终报告**)。
+- **环境变量**:`MCAGENT_SKILLS`(技能库路径)、`MCAGENT_SEED`/`MCAGENT_SEED_ROLE`(当前世界种子与角色,驱动门禁记录)、`MCAGENT_REFLEX=0`(关 L1)。
+- **运行器侧 op(不暴露给 agent)**:`node tools/setup-bot.mjs packages/adapters/mineflayer cmd|dig|fixture|fixture-at ...`(`fixture-at x y z n` = 清障后放 n 个 `stripped_oak_log`——属 `#logs` 但自然不生成,故是确定性目标)。
+- **独立验收器**:
   ```sh
   node tests/eval/g1-verifier.mjs collect --player Bot
   node tests/eval/g1-verifier.mjs verify --epoch E --since S --before-log-count N --player Bot
   node tests/eval/g2-verifier.mjs collect --box x1,y1,z1,x2,y2,z2 --ore <id> --item <id> --player Bot
   node tests/eval/g2-verifier.mjs verify-mine|verify-build|verify-repair ...
-  node tools/setup-bot.mjs packages/adapters/mineflayer cmd|dig ...   # 运行器侧 op fixture/扰动(不暴露给 agent)
+  node tests/eval/g3-verifier.mjs --skill get_wood --library /tmp/opencode/g3-skills.json
   ```
 
-## 5. 待办(按设计,不留捷径)
-- **感知与寻址返工(已完成并通过 G1/G2 门槛,`world-map-and-composition.md §12`)**:模型面主地址改为**对象句柄 + 罗盘方位**(东南西北+上下,不绑朝向;坐标保留、默认不引导)。新增 **`view`**(近处逐方块、裁剪到含方块的长方体、暴露面字母/内部`#`/黑雾`?`/玩家`@`、罗盘对齐);**`scan_blocks`** 改为**对象聚合**(暴露连通的同类方块 → 句柄 + size + 中心/边缘距离 + 罗盘方位 + touchable/reachable;含可互动/实体/液体;默认半径 24;Mod `exposed_only` 服务端过滤);**删除 `inspect_block`/`scan_component`**,`scan_surface` 并入 `view`,`check_relations` → **`relations`**(兜底);`run_method` 集合改 `members/surface/nearest/area`。工具面共 **40 个**。
-- **M2(完成)**:`world` 通用查询 + 关系 + **表面壳(由常驻进程驱动:2s 事件补丁/跨格平移 + 30s 兜底)** + **两层地图第二层(持久稀疏发现图)**;`execution` **L1 reflex** + **L3 契约引擎**;`tasks` **有界词表执行**;`interfaces` 暴露 **`run_method`** 及**关系/表面感知工具 `scan_component`/`scan_surface`/`check_relations`/`recall`(共 42 工具)**;观测 Mod 记录**破坏 + 放置**。**M2 门槛 G1/G2 均通过**。下一步进入 **M3**(knowledge 方法库/门禁/回退)。`explore` 持续动作与视觉留 M6。
-- **M3(完成)**:`knowledge` 方法库(版本/适用条件/统计/状态 + 干预式 net-effect + 入库门禁/种子隔离 + 回退);技能由 agent 用有界词表造。**门槛 G3 通过**(见 §3)。下一步进入 **M4**。
-- **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;可视化(prismarine-viewer 调试 + headless 出帧)。
-- **M5**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标 + 消融)+ `scenarios/`(T1–T4 + 种子清单 + fixtures + `reset-world.sh`)。
+## 7. 待办(真正未完成)
+
+- **M4**:`interfaces/mcp` 动态注册 + `tools/list_changed`;技能晋升为一等工具(启动时);多会话共享一个身体;可视化(prismarine-viewer 调试 + headless 出帧)。**Gate G4**:客户端感知 `list_changed`、多会话共享、可视化可见。
+- **M5**:`tests/eval`(agent 驱动 runner + **独立外部验收器** + 指标:完成率/误报率/非 pass 三分/成本 + 消融链)+ `scenarios/`(T1–T4 + fixtures + `reset-world.sh` 完善)。**Gate GF**:完整 benchmark(test 种子)报告全部指标 + 消融;**机制有效性的唯一最终判定**。
 - **M6**:`explore` 持续动作、视觉(`adapters/vision`)、课程。
 - 补 Mod:`/markers`、`coverage`/每事实版本的完善。
 
-## 6. Git 约定
+## 8. Git 与提交约定
+
 - 每次提交可编译;提交信息 `feat(范围)/fix/docs`。
-- 弃用代码移分支或删除,不留死代码/占位。
+- 弃用代码移分支或删除,不留死代码/占位。旧原型存档在分支 `proto/mcp-runtime`(master 无残留)。
 - 关键决策与"铁律"必须写进 `docs/`,确保压缩上下文后仍可续做。
+- **最近提交(新→旧)**:`bba0b9e`(M3 技能库+门禁)、`09adf31`(area 取整 + M2.5 门槛记录)、`56cd5bc`(地址层端到端修复)、`1522839`(工具面文档)、`6a08161`(M2.5 地址层)、`d2c7762`(感知/寻址定稿)、`8ced6ce`(M2 收口)、`2149236`(Mod 记录放置)、`6b7547f`(令牌可重入)、`7ad02c5`/`c945616`/`2589559`/`e097fb1`(M1 各步)、`d327b97`(M0)。
