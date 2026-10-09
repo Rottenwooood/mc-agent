@@ -9,6 +9,9 @@
 	],
 	"license": "MIT",
 	"environment": "*",
+	"mixins": [
+		"mcagent_observer.mixins.json"
+	],
 	"entrypoints": {
 		"main": [
 			"com.mcagent.observer.ObserverMod"
