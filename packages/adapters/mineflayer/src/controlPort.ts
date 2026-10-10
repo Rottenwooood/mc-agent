@@ -418,7 +418,13 @@ export class MineflayerControlPort implements ControlPort {
     try {
       const recipes = bot.recipesFor(id, null, count, table);
       if (!recipes.length) return no('no recipe / missing ingredients');
-      await race(bot.craft(recipes[0], count, table), 'craft', 30000);
+      const recipe = recipes[0];
+      // mineflayer's `craft(recipe, count)` runs the recipe `count` TIMES, while `count` here is
+      // the desired RESULT amount — divide by the recipe yield. Passing the result amount as the
+      // iteration count runs out of ingredients mid-loop and mineflayer drops the leftover grid
+      // items (the "crafted things ended up on the ground" bug).
+      const times = Math.max(1, Math.ceil(count / (recipe.result?.count ?? 1)));
+      await race(bot.craft(recipe, times, table), 'craft', 30000);
       return ok('observed', 'crafted');
     } catch (e) {
       return no(String((e as Error)?.message ?? e));

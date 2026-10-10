@@ -5,6 +5,7 @@ import type { AtomicAction } from './types.js';
 import { perceptionActions } from './perception.js';
 import { movementActions } from './movement.js';
 import { blockActions } from './blocks.js';
+import { itemActions } from './items.js';
 import { entityActions } from './entities.js';
 import { inventoryActions } from './inventory.js';
 import { containerActions } from './containers.js';
@@ -14,6 +15,7 @@ export const ALL_ACTIONS: AtomicAction[] = [
   ...perceptionActions,
   ...movementActions,
   ...blockActions,
+  ...itemActions,
   ...entityActions,
   ...inventoryActions,
   ...containerActions,
