@@ -13,24 +13,30 @@ const goTo: AtomicAction = {
     description: 'Pathfind to within `range` blocks of a target. Verified against the authoritative self position.',
     params: {
       type: 'object',
-      properties: { target: { type: 'object' }, range: { type: 'number', default: 1 }, allowModify: { type: 'boolean', default: false } },
+      properties: {
+        target: { type: 'object' },
+        range: { type: 'number', default: 1 },
+        allowModify: { type: 'boolean', default: false },
+        timeoutMs: { type: 'integer', default: 15000, description: 'Movement budget; raise it for long terrain-modifying (allowModify) trips.' },
+      },
       required: ['target'],
       additionalProperties: false,
     },
     verificationMode: 'task_terminal',
     effectClass: 'idempotent',
     retryPolicy: 'safe_once',
-    timeoutTicks: 800,
+    timeoutTicks: 1800,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const target = args.target as Target;
     const range = Number(args.range ?? 1);
     const allowModify = args.allowModify === true;
+    const timeoutMs = Number(args.timeoutMs ?? 15000);
     return ctx.token.run(async () => {
       const rt = await resolveTarget(ctx, target);
       if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
       const pos = rt.value.pos;
-      const r = await ctx.ctrl.goto(pos, { range, allowModify });
+      const r = await ctx.ctrl.goto(pos, { range, allowModify, timeoutMs });
       const self = await ctx.world.selfPos();
       const arrived = !!self && distance(self, pos) <= range + 0.75;
       if (arrived) return pass({ evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }], attribution: 'self_temporal' });

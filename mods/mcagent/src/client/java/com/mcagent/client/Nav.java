@@ -18,9 +18,10 @@ import java.util.Set;
  * Movement is then executed through {@link ControlledInput} (player-legal input), never by
  * teleporting or writing velocity.
  *
- * <p>Conservative by design: it avoids fluids and hazards, steps up at most 1 block, falls at
- * most 3, does not cut diagonal corners, and gives up past a node/distance budget. It is an
- * approximation of what a player would do, not a guarantee of reachability.
+ * <p>When {@code allowModify} is set, blocks that can be broken are treated as traversable (at an
+ * extra cost) and the walker tunnels through them — mirroring the mineflayer backend's
+ * {@code Movements.canDig}. Conservative by design: avoids fluids, steps up at most 1, falls at
+ * most 3, never cuts diagonal corners, and gives up past a node/distance budget.
  */
 public final class Nav {
 
@@ -28,11 +29,15 @@ public final class Nav {
 
     /** True when a position is a place a player can stand (feet+head free, solid support). */
     public static boolean standable(ClientLevel level, BlockPos pos) {
+        return standable(level, pos, false);
+    }
+
+    public static boolean standable(ClientLevel level, BlockPos pos, boolean allowModify) {
         if (!level.hasChunk(pos.getX() >> 4, pos.getZ() >> 4)) {
             return false;
         }
-        return passable(level, pos)
-                && passable(level, pos.above())
+        return passableNav(level, pos, allowModify)
+                && passableNav(level, pos.above(), allowModify)
                 && !passable(level, pos.below());
     }
 
@@ -45,14 +50,36 @@ public final class Nav {
         return st.getCollisionShape(level, pos).isEmpty();
     }
 
+    /** Passable, or breakable when terrain modification is allowed. */
+    public static boolean passableNav(ClientLevel level, BlockPos pos, boolean allowModify) {
+        if (passable(level, pos)) {
+            return true;
+        }
+        return allowModify && breakable(level, pos);
+    }
+
+    /** A block a player can break (has a non-negative destroy speed; bedrock/portal are not). */
+    public static boolean breakable(ClientLevel level, BlockPos pos) {
+        BlockState st = level.getBlockState(pos);
+        if (st.isAir() || !st.getFluidState().isEmpty()) {
+            return false;
+        }
+        return st.getDestroySpeed(level, pos) >= 0;
+    }
+
+    public static List<BlockPos> findPath(ClientLevel level, BlockPos start, BlockPos goal,
+                                          int range, int maxNodes, double maxDist) {
+        return findPath(level, start, goal, range, maxNodes, maxDist, false);
+    }
+
     /**
-     * Find a walking path from {@code start} to within {@code range} (horizontal) of {@code goal}.
+     * Find a walking path from {@code start} to within {@code range} (3D) of {@code goal}.
      *
      * @return ordered path of standable nodes, excluding {@code start}; empty if none found.
      */
     public static List<BlockPos> findPath(ClientLevel level, BlockPos start, BlockPos goal,
-                                          int range, int maxNodes, double maxDist) {
-        BlockPos s = nearestStandable(level, start, 3);
+                                          int range, int maxNodes, double maxDist, boolean allowModify) {
+        BlockPos s = nearestStandable(level, start, 3, allowModify);
         if (s == null) {
             return List.of();
         }
@@ -91,16 +118,18 @@ public final class Nav {
                         continue;
                     }
                     boolean diagonal = dx != 0 && dz != 0;
-                    if (diagonal && (!clearColumn(level, cur.pos.offset(dx, 0, 0))
-                            || !clearColumn(level, cur.pos.offset(0, 0, dz)))) {
+                    if (diagonal && (!clearColumn(level, cur.pos.offset(dx, 0, 0), allowModify)
+                            || !clearColumn(level, cur.pos.offset(0, 0, dz), allowModify))) {
                         continue; // never cut a corner through a wall
                     }
-                    for (int dy = -3; dy <= 1; dy++) {
+                    // When tunnelling, only step down 1 (a larger fall would need to dig a block
+                    // that is out of reach); without modification, falls of up to 3 are fine.
+                    for (int dy = (allowModify ? -1 : -3); dy <= 1; dy++) {
                         BlockPos next = cur.pos.offset(dx, dy, dz);
-                        if (!standable(level, next) || !level.hasChunk(next.getX() >> 4, next.getZ() >> 4)) {
+                        if (!standable(level, next, allowModify) || !level.hasChunk(next.getX() >> 4, next.getZ() >> 4)) {
                             continue;
                         }
-                        if (dy == 1 && !clearColumn(level, cur.pos)) {
+                        if (dy == 1 && !clearColumn(level, cur.pos, allowModify)) {
                             continue;
                         }
                         long nk = next.asLong();
@@ -109,6 +138,9 @@ public final class Nav {
                         }
                         double step = (diagonal ? 1.414 : 1.0)
                                 + (dy > 0 ? 1.5 : (dy < 0 ? 0.5 * -dy : 0.0));
+                        if (allowModify && !passable(level, next)) {
+                            step += 4.0; // prefer going around over tunnelling
+                        }
                         double g = cur.g + step;
                         Node prev = best.get(nk);
                         if (prev != null && prev.g <= g) {
@@ -132,9 +164,8 @@ public final class Nav {
         return path;
     }
 
-    /** Feet + head free of collision/fluid. */
-    private static boolean clearColumn(ClientLevel level, BlockPos feet) {
-        return passable(level, feet) && passable(level, feet.above());
+    private static boolean clearColumn(ClientLevel level, BlockPos feet, boolean allowModify) {
+        return passableNav(level, feet, allowModify) && passableNav(level, feet.above(), allowModify);
     }
 
     private static double heuristic(BlockPos a, BlockPos goal, int range) {
@@ -159,9 +190,13 @@ public final class Nav {
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    /** Closest standable node to {@code origin} within {@code radius} (inclusive of origin). */
     public static BlockPos nearestStandable(ClientLevel level, BlockPos origin, int radius) {
-        if (standable(level, origin)) {
+        return nearestStandable(level, origin, radius, false);
+    }
+
+    /** Closest standable node to {@code origin} within {@code radius} (inclusive of origin). */
+    public static BlockPos nearestStandable(ClientLevel level, BlockPos origin, int radius, boolean allowModify) {
+        if (standable(level, origin, allowModify)) {
             return origin;
         }
         for (int r = 1; r <= radius; r++) {
@@ -172,7 +207,7 @@ public final class Nav {
                             continue;
                         }
                         BlockPos p = origin.offset(dx, dy, dz);
-                        if (standable(level, p)) {
+                        if (standable(level, p, allowModify)) {
                             return p;
                         }
                     }

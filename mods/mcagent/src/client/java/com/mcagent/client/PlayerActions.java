@@ -14,6 +14,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
@@ -144,6 +145,14 @@ public final class PlayerActions {
 
     private static BlockPos readPos(JsonObject args) {
         JsonArray a = args.getAsJsonArray("pos");
+        return new BlockPos(a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt());
+    }
+
+    private static BlockPos readPos(JsonObject args, String key) {
+        JsonArray a = args.getAsJsonArray(key);
+        if (a == null || a.size() < 3) {
+            return null;
+        }
         return new BlockPos(a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt());
     }
 
@@ -423,8 +432,9 @@ public final class PlayerActions {
         BlockPos goal = readPos(args);
         int range = optInt(args, "range", 1);
         long timeout = optLong(args, "timeoutMs", 15000);
-        return new WalkTask(mc, input, "goto", timeout + 2000,
-                (pl, lv) -> goal, range, 0);
+        boolean allowModify = args.has("allowModify") && args.get("allowModify").getAsBoolean();
+        return new WalkTask(mc, this, input, "goto", timeout + 2000,
+                (pl, lv) -> goal, range, 0, allowModify);
     }
 
     public ControlTask followTask(JsonObject args) {
@@ -432,10 +442,10 @@ public final class PlayerActions {
         int distance = optInt(args, "distance", 2);
         long duration = optLong(args, "durationMs", 5000);
         long stopAt = System.currentTimeMillis() + duration;
-        return new WalkTask(mc, input, "follow", duration + 3000, (pl, lv) -> {
+        return new WalkTask(mc, this, input, "follow", duration + 3000, (pl, lv) -> {
             Entity e = entityById(id);
             return e == null ? null : e.blockPosition();
-        }, distance, stopAt);
+        }, distance, stopAt, false);
     }
 
     public ControlTask fleeTask(JsonObject args) {
@@ -459,7 +469,7 @@ public final class PlayerActions {
                     double len = Math.max(0.001, Math.hypot(dx, dz));
                     BlockPos away = BlockPos.containing(p.getX() + dx / len * distance,
                             p.getY(), p.getZ() + dz / len * distance);
-                    inner = new WalkTask(mc, input, "flee", 12000, (pl, lv) -> away, 1, 0);
+                    inner = new WalkTask(mc, PlayerActions.this, input, "flee", 12000, (pl, lv) -> away, 1, 0, false);
                 }
                 if (inner.step()) {
                     complete(inner.future().getNow(Wire.accepted("fled")));
@@ -526,10 +536,8 @@ public final class PlayerActions {
 
     public ControlTask digTask(JsonObject args) {
         BlockPos pos = readPos(args);
-        return new ControlTask("dig", 30000) {
-            Direction dir;
-            boolean started;
-            int sinceFace;
+        return new ControlTask("dig", 60000) {
+            final Digger digger = new Digger(mc);
 
             @Override
             public boolean step() {
@@ -539,42 +547,30 @@ public final class PlayerActions {
                     complete(Wire.rejected("no player"));
                     return true;
                 }
-                BlockState st = level.getBlockState(pos);
-                if (st.isAir()) {
-                    if (started) {
-                        mc.gameMode.stopDestroyBlock();
-                    }
+                if (level.getBlockState(pos).isAir()) {
                     complete(Wire.accepted("dig completed"));
                     return true;
                 }
-                if (!started || sinceFace > 40) {
-                    if (started) {
-                        mc.gameMode.stopDestroyBlock();
+                digger.goal(pos);
+                if (digger.tick(p, PlayerActions.this)) {
+                    if (level.getBlockState(pos).isAir()) {
+                        complete(Wire.accepted("dig completed"));
+                    } else {
+                        complete(Wire.rejected(digger.reason() != null ? digger.reason() : "dig failed"));
                     }
-                    dir = faceTowards(p, pos);
-                    // Equip the best available tool for this block, if any.
-                    equipBestTool(st);
-                    Aim.look(p, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-                    mc.gameMode.startDestroyBlock(pos, dir);
-                    started = true;
-                    sinceFace = 0;
+                    return true;
                 }
-                sinceFace++;
-                mc.gameMode.continueDestroyBlock(pos, dir);
-                p.swing(InteractionHand.MAIN_HAND);
                 return false;
             }
 
             @Override
             protected void onCancel() {
-                if (started) {
-                    mc.gameMode.stopDestroyBlock();
-                }
+                digger.stop();
             }
         };
     }
 
-    private void equipBestTool(BlockState st) {
+    void equipBestTool(BlockState st) {
         LocalPlayer p = mc.player;
         if (p == null) {
             return;
@@ -816,7 +812,7 @@ public final class PlayerActions {
     public ControlTask craftTask(JsonObject args) {
         String item = optStr(args, "item", null);
         int count = Math.max(1, optInt(args, "count", 1));
-        BlockPos table = args.has("tablePos") ? readPos(args) : null;
+        BlockPos table = readPos(args, "tablePos");
         return new ProductionTasks.CraftTask(mc, this, item, count, table);
     }
 
@@ -916,51 +912,28 @@ public final class PlayerActions {
         return out;
     }
 
-    /** Manual grid placement of a crafting recipe (does not rely on recipe-book unlocks). */
-    void placeRecipe(Recipe<?> recipe, int gridWidth) {
+    /** Menu slot (in the currently open menu) of the first inventory stack matching an ingredient. */
+    int menuSlotForIngredient(Ingredient ing) {
         LocalPlayer p = p();
-        AbstractContainerMenu menu = p.containerMenu;
-        List<Ingredient> ings = recipe.getIngredients();
-        int cells = gridWidth * gridWidth;
-        int[] pos = new int[cells];
-        java.util.Arrays.fill(pos, -1);
-        if (recipe instanceof ShapedRecipe sr) {
-            int w = sr.getWidth();
-            int h = sr.getHeight();
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) {
-                    int idx = y * w + x;
-                    if (idx < ings.size()) {
-                        pos[y * gridWidth + x] = idx;
-                    }
-                }
-            }
-        } else {
-            for (int i = 0; i < Math.min(ings.size(), cells); i++) {
-                pos[i] = i;
-            }
-        }
-        for (int gi = 0; gi < cells; gi++) {
-            int ing = pos[gi];
-            if (ing < 0 || ing >= ings.size()) {
-                continue;
-            }
-            int invMenuSlot = findInventorySlotMatching(ings.get(ing));
-            if (invMenuSlot < 0) {
-                continue;
-            }
-            click(menu.containerId, invMenuSlot, 0, ClickType.PICKUP);
-            click(menu.containerId, 1 + gi, 1, ClickType.PICKUP);
-            click(menu.containerId, invMenuSlot, 0, ClickType.PICKUP);
-        }
-    }
-
-    private int findInventorySlotMatching(Ingredient ing) {
-        Inventory inv = p().getInventory();
+        Inventory inv = p.getInventory();
+        int invIndex = -1;
         for (int i = 0; i < MAIN; i++) {
             ItemStack s = inv.getItem(i);
             if (!s.isEmpty() && ing.test(s)) {
-                return invToMenuSlot(i);
+                invIndex = i;
+                break;
+            }
+        }
+        if (invIndex < 0) {
+            return -1;
+        }
+        // Locate the slot in the *currently open* menu by container identity + index; the player
+        // inventory sits at different menu slots depending on the menu (2x2 vs 3x3 grid, etc.).
+        AbstractContainerMenu menu = p.containerMenu;
+        for (int i = 0; i < menu.slots.size(); i++) {
+            Slot s = menu.getSlot(i);
+            if (s.container == inv && s.getContainerSlot() == invIndex) {
+                return i;
             }
         }
         return -1;

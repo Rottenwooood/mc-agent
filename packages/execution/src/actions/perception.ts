@@ -120,10 +120,20 @@ function matchBlockIds(
   match: unknown,
 ): { kind: 'any' } | { kind: 'block'; block: string } | { kind: 'tag'; tag: string } {
   if (!match || match === 'any') return { kind: 'any' };
+  // Bare strings are accepted for convenience: "#tag" -> tag, anything else -> block id.
+  if (typeof match === 'string') {
+    const s = match.trim();
+    if (s.startsWith('#')) return { kind: 'tag', tag: s.slice(1) };
+    if (s.length > 0) return { kind: 'block', block: s };
+    return { kind: 'any' };
+  }
   const o = match as Record<string, unknown>;
   if (o.kind === 'any') return { kind: 'any' };
   if (o.block) return { kind: 'block', block: String(o.block) };
-  if (o.tag) return { kind: 'tag', tag: String(o.tag) };
+  if (o.tag) {
+    const t = String(o.tag);
+    return { kind: 'tag', tag: t.startsWith('#') ? t.slice(1) : t };
+  }
   return { kind: 'any' };
 }
 

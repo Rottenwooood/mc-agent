@@ -15,8 +15,10 @@ import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.CraftingRecipe;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.item.crafting.ShapedRecipe;
 
 import java.util.ArrayDeque;
 import java.util.List;
@@ -78,8 +80,9 @@ final class ProductionTasks {
         }
 
         protected void moveStack(int fromSlot, int toSlot) {
-            click(fromSlot, 0, ClickType.PICKUP);
-            click(toSlot, 0, ClickType.PICKUP);
+            // Space the two clicks one per tick: same-tick multi-clicks desync the server.
+            enqueue(() -> click(fromSlot, 0, ClickType.PICKUP));
+            enqueue(() -> click(toSlot, 0, ClickType.PICKUP));
         }
     }
 
@@ -90,6 +93,7 @@ final class ProductionTasks {
         private final int count;
         private final BlockPos table;
         private Recipe<?> recipe;
+        private Item target;
         private int gridWidth = 2;
         private int produced;
         private int resultCount = 1;
@@ -115,26 +119,26 @@ final class ProductionTasks {
                 return true;
             }
             if (recipe == null) {
-                Item target = PlayerActions.itemByName(item);
+                target = PlayerActions.itemByName(item);
                 if (target == null) {
                     complete(Wire.rejected("unknown item " + item));
                     return true;
                 }
+                gridWidth = table != null ? 3 : 2;
                 List<Recipe<?>> recipes = a.craftingRecipes(target);
-                if (recipes.isEmpty()) {
-                    complete(Wire.rejected("no recipe for " + item));
+                recipe = pickSatisfiable(recipes);
+                if (recipe == null) {
+                    complete(Wire.rejected(recipes.isEmpty() ? "no recipe for " + item : "missing ingredients for " + item));
                     return true;
                 }
-                recipe = recipes.get(0);
                 resultCount = Math.max(1, recipe.getResultItem(level.registryAccess()).getCount());
                 if (table != null) {
                     a.useOnBlock(table);
-                    gridWidth = 3;
                     phase = 1;
+                    waited = 0;
                     delay(2);
                     return false;
                 }
-                gridWidth = 2;
                 phase = 2;
             }
             switch (phase) {
@@ -149,26 +153,109 @@ final class ProductionTasks {
                     return false;
                 }
                 case 2: {
-                    a.placeRecipe(recipe, gridWidth);
+                    if (!buildPlacement()) {
+                        complete(Wire.rejected("cannot place ingredients"));
+                        return true;
+                    }
                     phase = 3;
-                    delay(3);
                     return false;
                 }
                 case 3: {
-                    click(0, 0, ClickType.QUICK_MOVE); // take the result
+                    delay(3);
+                    phase = 4;
+                    waited = 0;
+                    return false;
+                }
+                case 4: {
+                    AbstractContainerMenu m = menu();
+                    if (m != null && m.getSlot(0).getItem().is(target)) {
+                        enqueue(() -> click(0, 0, ClickType.QUICK_MOVE));
+                        phase = 5;
+                    } else if (++waited > 40) {
+                        complete(Wire.rejected("no crafting result"));
+                        return true;
+                    }
+                    return false;
+                }
+                case 5: {
                     produced += resultCount;
                     if (produced >= count) {
                         complete(Wire.accepted("crafted"));
                         return true;
                     }
                     phase = 2;
-                    delay(2);
                     return false;
                 }
                 default:
                     complete(Wire.rejected("craft failed"));
                     return true;
             }
+        }
+
+        /** First recipe whose non-empty ingredients the inventory can satisfy and fits the grid. */
+        private Recipe<?> pickSatisfiable(List<Recipe<?>> recipes) {
+            for (Recipe<?> r : recipes) {
+                if (r instanceof ShapedRecipe sr && (sr.getWidth() > gridWidth || sr.getHeight() > gridWidth)) {
+                    continue;
+                }
+                boolean ok = true;
+                for (Ingredient ing : r.getIngredients()) {
+                    if (ing.getItems().length == 0) {
+                        continue;
+                    }
+                    if (a.menuSlotForIngredient(ing) < 0) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) {
+                    return r;
+                }
+            }
+            return null;
+        }
+
+        /** Enqueue the clicks that fill the crafting grid (one click per tick). */
+        private boolean buildPlacement() {
+            List<Ingredient> ings = recipe.getIngredients();
+            int cells = gridWidth * gridWidth;
+            int[] map = new int[cells];
+            java.util.Arrays.fill(map, -1);
+            if (recipe instanceof ShapedRecipe sr) {
+                int w = sr.getWidth();
+                int h = sr.getHeight();
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        int idx = y * w + x;
+                        if (idx < ings.size()) {
+                            map[y * gridWidth + x] = idx;
+                        }
+                    }
+                }
+            } else {
+                for (int i = 0; i < Math.min(ings.size(), cells); i++) {
+                    map[i] = i;
+                }
+            }
+            for (int gi = 0; gi < cells; gi++) {
+                int ing = map[gi];
+                if (ing < 0 || ing >= ings.size()) {
+                    continue;
+                }
+                Ingredient ingredient = ings.get(ing);
+                if (ingredient.getItems().length == 0) {
+                    continue;
+                }
+                int slot = a.menuSlotForIngredient(ingredient);
+                if (slot < 0) {
+                    return false;
+                }
+                final int gridSlot = 1 + gi;
+                enqueue(() -> click(slot, 0, ClickType.PICKUP));
+                enqueue(() -> click(gridSlot, 1, ClickType.PICKUP));
+                enqueue(() -> click(slot, 0, ClickType.PICKUP));
+            }
+            return true;
         }
     }
 
