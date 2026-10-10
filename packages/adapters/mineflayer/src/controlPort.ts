@@ -107,24 +107,16 @@ export class MineflayerControlPort implements ControlPort {
     const timeoutMs = opts.timeoutMs ?? 12000;
     const goal = new goals.GoalNear(pos[0], pos[1], pos[2], range);
     const stop = (): void => { try { bot.pathfinder.stop(); } catch { /* ignore */ } };
-    const attempt = async (allowModify: boolean): Promise<void> => {
-      this.setMovements(bot, allowModify);
-      await Promise.race([
-        bot.pathfinder.goto(goal),
-        sleep(timeoutMs).then(() => Promise.reject(new Error('goto timeout'))),
-      ]);
-    };
     try {
       // Prefer walking around; only tunnel through terrain when there is no clean path — the same
-      // semantics as the client-mod backend. A `canDig` movement set thrashes in tight terrain
-      // (that is what wedged direct set_block navigation even when a clean path existed).
+      // semantics as the client-mod backend. A `canDig` movement set thrashes in tight terrain.
       try {
-        await attempt(false);
+        await this.navigate(bot, goal, pos, false, timeoutMs);
         return ok('observed', 'path resolved');
       } catch (clean) {
         stop();
         if (opts.allowModify !== true) throw clean;
-        await attempt(true);
+        await this.navigate(bot, goal, pos, true, timeoutMs);
         return ok('observed', 'path resolved (tunnel)');
       }
     } catch (e) {
@@ -132,6 +124,58 @@ export class MineflayerControlPort implements ControlPort {
       // NEXT action too (observed live as the bot plateauing/oscillating).
       stop();
       return no(String((e as Error)?.message ?? e));
+    }
+  }
+
+  /**
+   * One pathfinder attempt, watching for progress. A terrain-modifying attempt can stall because
+   * the pathfinder refuses to clear the block in front (e.g. under gravel/sand or beside liquid):
+   * when the bot stops moving, break the block blocking its 2-tall body toward the goal — exactly
+   * what a player does to unstick.
+   */
+  private async navigate(bot: any, goal: unknown, pos: Vec3, allowModify: boolean, timeoutMs: number): Promise<void> {
+    this.setMovements(bot, allowModify);
+    let settled = 'pending';
+    void bot.pathfinder
+      .goto(goal)
+      .then(() => { settled = 'ok'; })
+      .catch((e: unknown) => { settled = 'err:' + String((e as Error)?.message ?? e); });
+    const deadline = Date.now() + timeoutMs;
+    let last = bot.entity.position.clone();
+    let lastMove = Date.now();
+    while (Date.now() < deadline) {
+      await sleep(300);
+      if (settled !== 'pending') break;
+      const cur = bot.entity.position;
+      if (cur.distanceTo(last) > 0.3) {
+        last = cur.clone();
+        lastMove = Date.now();
+      } else if (allowModify && Date.now() - lastMove > 1200) {
+        await this.digBlockingBody(bot, pos);
+        lastMove = Date.now();
+      }
+    }
+    if (settled === 'ok') return;
+    if (settled !== 'pending') throw new Error(settled.slice(4));
+    throw new Error('goto timeout');
+  }
+
+  /** Break the non-air blocks in the bot's 2-tall body one step toward `pos` (unstick). */
+  private async digBlockingBody(bot: any, pos: Vec3): Promise<void> {
+    const p = bot.entity.position;
+    const dx = pos[0] - p.x;
+    const dz = pos[2] - p.z;
+    const sx = Math.abs(dx) >= Math.abs(dz) ? Math.sign(dx) : 0;
+    const sz = Math.abs(dz) > Math.abs(dx) ? Math.sign(dz) : 0;
+    const bx = Math.floor(p.x);
+    const by = Math.floor(p.y);
+    const bz = Math.floor(p.z);
+    for (const dy of [0, 1]) {
+      const at: Vec3 = [bx + sx, by + dy, bz + sz];
+      const b = bot.blockAt(V(at));
+      if (b && b.name !== 'air' && b.boundingBox === 'block') {
+        try { await this.dig(at); } catch { /* ignore */ }
+      }
     }
   }
 
