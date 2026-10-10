@@ -9,6 +9,7 @@ export interface WireAction {
   note?: string;
   result?: unknown;
   error?: string;
+  progress?: { blocksBroken?: string[]; moved?: number; phase?: string; elapsedMs?: number };
 }
 
 export interface WireHealth {

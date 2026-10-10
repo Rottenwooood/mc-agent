@@ -11,6 +11,8 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.function.Consumer;
+
 /**
  * Robust block breaker shared by the dig primitive and the navigator's terrain-modifying mode.
  *
@@ -39,9 +41,25 @@ public final class Digger {
     private int ticks;
     private int goalTicks;
     private String reason;
+    private Consumer<BlockPos> onBreak;
+    private boolean breakThrough = true;
 
     public Digger(Minecraft mc) {
         this.mc = mc;
+    }
+
+    /** Called once for every block this digger finishes breaking (for progress accounting). */
+    public void setOnBreak(Consumer<BlockPos> cb) {
+        this.onBreak = cb;
+    }
+
+    /**
+     * When true, the digger will break blocks that stand between the eye and the goal
+     * (tunnelling). When false it only breaks a directly reachable goal and otherwise fails with
+     * {@code blocked_by}.
+     */
+    public void setBreakThrough(boolean v) {
+        this.breakThrough = v;
     }
 
     public boolean digging() {
@@ -86,10 +104,23 @@ public final class Digger {
         }
     }
 
+    private void fireBreak(BlockPos pos) {
+        if (onBreak != null) {
+            onBreak.accept(pos);
+        }
+    }
+
     /** One tick of digging the goal; returns true when the goal is gone or unreachable. */
     public boolean tick(LocalPlayer p, PlayerActions actions) {
         if (goal == null || mc.level == null) {
             return true;
+        }
+        // A block we were digging is now gone -> record it as progress.
+        if (current != null && started && mc.level.getBlockState(current).isAir()) {
+            fireBreak(current);
+            current = null;
+            started = false;
+            ticks = 0;
         }
         if (mc.level.getBlockState(goal).isAir()) {
             clear();
@@ -170,6 +201,10 @@ public final class Digger {
             // An occluder sits between the eye and the goal.
             BlockState occ = mc.level.getBlockState(hp);
             boolean breakable = occ.getDestroySpeed(mc.level, hp) >= 0;
+            if (breakable && !breakThrough) {
+                reason = "blocked_by: " + hp.toShortString();
+                return null;
+            }
             if (d <= reach && breakable) {
                 return new Plan(hp, hit.getDirection());
             }

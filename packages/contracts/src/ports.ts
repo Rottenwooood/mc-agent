@@ -116,7 +116,7 @@ export interface ControlPort {
   stopMotion(): Promise<ControlReceipt>;
 
   // blocks
-  dig(pos: Vec3): Promise<ControlReceipt>;
+  dig(pos: Vec3, opts?: { breakThrough?: boolean }): Promise<ControlReceipt>;
   place(pos: Vec3, face: Vec3, item?: string): Promise<ControlReceipt>;
   use(pos: Vec3): Promise<ControlReceipt>;
 

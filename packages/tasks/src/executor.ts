@@ -129,13 +129,18 @@ export async function runMethod(
   }
   const timedOut = Date.now() > env.deadline;
   const tri: Tri = timedOut ? undefined : await terminal(ctx, method.postconditions ?? [], env);
+  const blocksBroken = [
+    ...new Set(
+      env.results.flatMap((r) => ((r.data as { blocksBroken?: string[] } | undefined)?.blocksBroken) ?? []),
+    ),
+  ];
   return mk({
     effectStatus: triToEffect(tri),
     controlStatus: timedOut ? 'interrupted' : 'completed',
     reason: timedOut ? 'timeout' : tri === true ? null : tri === false ? 'effect_not_observed' : 'insufficient_evidence',
     subResults: env.results,
     attribution: 'self_temporal',
-    data: { steps: env.results.length, budgetLeft: env.budget, elapsedMs: Date.now() - start, timedOut },
+    data: { steps: env.results.length, budgetLeft: env.budget, elapsedMs: Date.now() - start, timedOut, ...(blocksBroken.length ? { blocksBroken } : {}) },
   });
 }
 

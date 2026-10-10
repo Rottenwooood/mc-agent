@@ -190,7 +190,7 @@ export class MineflayerControlPort implements ControlPort {
 
   // ---- blocks ----
 
-  async dig(pos: Vec3): Promise<ControlReceipt> {
+  async dig(pos: Vec3, _opts?: { breakThrough?: boolean }): Promise<ControlReceipt> {
     const bot = this.b();
     const block = bot.blockAt(V(pos));
     if (!block) return no('no block at position');

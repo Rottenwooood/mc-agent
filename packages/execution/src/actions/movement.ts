@@ -37,11 +37,27 @@ const goTo: AtomicAction = {
       if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
       const pos = rt.value.pos;
       const r = await ctx.ctrl.goto(pos, { range, allowModify, timeoutMs });
+      const broken = ((r.raw as { blocksBroken?: string[] } | undefined)?.blocksBroken) ?? [];
+      const progress = broken.length
+        ? {
+            effects: broken.map((b) => ({ subject: `block@${b}`, predicate: 'is', value: 'minecraft:air' })),
+            evidence: broken.map((b) => ({ claim: 'block_removed', source: 'authoritative' as const, value: b })),
+            data: { blocksBroken: broken },
+          }
+        : {};
       const self = await ctx.world.selfPos();
       const arrived = !!self && distance(self, pos) <= range + 0.75;
-      if (arrived) return pass({ evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }], attribution: 'self_temporal' });
-      if (!r.accepted) return mk({ effectStatus: 'unobservable', controlStatus: 'needs_replan', reason: 'precondition_failed', reasonDetail: r.note });
-      return fail('effect_not_observed', { evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }] });
+      if (arrived) {
+        return pass({
+          evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }, ...(progress.evidence ?? [])],
+          ...(broken.length ? { effects: progress.effects, data: progress.data } : {}),
+          attribution: 'self_temporal',
+        });
+      }
+      if (!r.accepted) {
+        return mk({ effectStatus: 'unobservable', controlStatus: 'needs_replan', reason: 'precondition_failed', reasonDetail: r.note, ...progress });
+      }
+      return fail('effect_not_observed', { evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }, ...(progress.evidence ?? [])], ...progress });
     });
   },
 };

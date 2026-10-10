@@ -1,7 +1,7 @@
 // Block atomic actions. Core primitive = set_block (replace semantics); no coordinate
 // parameters — the model passes a semantic Target.
 
-import type { ActionResult, Target, Vec3 } from '@mc-agent/contracts';
+import type { ActionResult, ControlReceipt, Target, Vec3 } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
 import { distance, key } from '@mc-agent/world';
 import { mk, pass, fail } from '../result.js';
@@ -10,6 +10,20 @@ import { contract } from './types.js';
 import { resolveTarget } from './target.js';
 
 const AIR = 'minecraft:air';
+
+/** Turn a control receipt's progress (blocks broken while tunnelling) into effects/evidence. */
+function progressBits(r: ControlReceipt): {
+  broken: string[];
+  effects: { subject: string; predicate: string; value: unknown }[];
+  evidence: { claim: string; source: string; value?: unknown }[];
+} {
+  const broken = ((r.raw as { blocksBroken?: string[] } | undefined)?.blocksBroken) ?? [];
+  return {
+    broken,
+    effects: broken.map((b) => ({ subject: `block@${b}`, predicate: 'is', value: AIR })),
+    evidence: broken.map((b) => ({ claim: 'block_removed', source: 'authoritative', value: b })),
+  };
+}
 
 /** Find an adjacent solid face to place against (real reference, not a hardcoded direction). */
 async function findPlaceFace(ctx: ActionContext, pos: Vec3): Promise<Vec3 | null> {
@@ -41,6 +55,7 @@ const setBlock: AtomicAction = {
         block: { type: 'string', description: 'Target block id, e.g. minecraft:oak_planks or minecraft:air' },
         navigate: { type: 'boolean', default: true },
         allowModify: { type: 'boolean', default: false, description: 'Allow pathfinder to modify terrain (scaffolding)' },
+        breakThrough: { type: 'boolean', default: true, description: 'When digging, break intervening blocks to reach the target (tunnelling). Set false to only dig a directly reachable block.' },
         face: { type: 'array', items: { type: 'integer' }, description: 'Explicit place face (optional)' },
       },
       required: ['target', 'block'],
@@ -58,6 +73,7 @@ const setBlock: AtomicAction = {
     const block = String(args.block);
     const navigate = args.navigate !== false;
     const allowModify = args.allowModify === true;
+    const breakThrough = args.breakThrough !== false;
     const explicitFace = Array.isArray(args.face) ? (args.face as Vec3) : null;
 
     return ctx.token.run(async () => {
@@ -84,34 +100,58 @@ const setBlock: AtomicAction = {
         }
       }
 
+      const broken: string[] = [];
+      const digOnce = async (p: Vec3) => {
+        const d = await ctx.ctrl.dig(p, { breakThrough });
+        for (const b of progressBits(d).broken) {
+          if (!broken.includes(b)) broken.push(b);
+        }
+        return d;
+      };
+      const progress = () => ({
+        ...(broken.length > 0
+          ? {
+              effects: broken.map((b) => ({ subject: `block@${b}`, predicate: 'is', value: AIR })),
+              evidence: broken.map((b) => ({ claim: 'block_removed', source: 'authoritative' as const, value: b })),
+              data: { blocksBroken: broken },
+            }
+          : {}),
+      });
+
       if (block === AIR) {
-        const d = await ctx.ctrl.dig(pos);
-        if (!d.accepted) return fail('effect_not_observed', { reasonDetail: d.note, controlStatus: 'needs_replan' });
+        const d = await digOnce(pos);
+        if (!d.accepted) {
+          return mk({ effectStatus: 'fail', reason: 'effect_not_observed', reasonDetail: d.note, controlStatus: 'needs_replan', ...progress() });
+        }
       } else {
         if (before.value !== AIR) {
-          const d = await ctx.ctrl.dig(pos);
-          if (!d.accepted) return fail('effect_not_observed', { reasonDetail: d.note, controlStatus: 'needs_replan' });
+          const d = await digOnce(pos);
+          if (!d.accepted) {
+            return mk({ effectStatus: 'fail', reason: 'effect_not_observed', reasonDetail: d.note, controlStatus: 'needs_replan', ...progress() });
+          }
         }
         const face = explicitFace ?? (await findPlaceFace(ctx, pos));
-        if (!face) return fail('precondition_failed', { reasonDetail: 'no reference face to place against' });
+        if (!face) return fail('precondition_failed', { reasonDetail: 'no reference face to place against', ...progress() });
         const p = await ctx.ctrl.place(pos, face, block);
-        if (!p.accepted) return fail('effect_not_observed', { reasonDetail: p.note, controlStatus: 'needs_replan' });
+        if (!p.accepted) return fail('effect_not_observed', { reasonDetail: p.note, controlStatus: 'needs_replan', ...progress() });
       }
 
       const after = await ctx.world.blockAt(pos);
       if (isUnknown(after)) {
-        return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', controlStatus: 'needs_replan' });
+        return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', controlStatus: 'needs_replan', ...progress() });
       }
       if (after.value === block) {
         return pass({
           effects: [{ subject: `block@${pos.join(',')}`, predicate: 'is', before: before.value, after: after.value }],
           evidence: [{ claim: 'block_at_target', source: 'authoritative', value: after.value }],
           attribution: 'self_temporal',
+          ...progress(),
         });
       }
       return fail('effect_not_observed', {
         effects: [{ subject: `block@${pos.join(',')}`, predicate: 'is', before: before.value, after: after.value, ok: false }],
         evidence: [{ claim: 'block_at_target', source: 'authoritative', value: after.value }],
+        ...progress(),
       });
     });
   },

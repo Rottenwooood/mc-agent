@@ -536,8 +536,14 @@ public final class PlayerActions {
 
     public ControlTask digTask(JsonObject args) {
         BlockPos pos = readPos(args);
-        return new ControlTask("dig", 60000) {
+        boolean breakThrough = !args.has("breakThrough") || args.get("breakThrough").getAsBoolean();
+        return new ControlTask("dig", 20000) {
             final Digger digger = new Digger(mc);
+
+            @Override
+            public boolean autoProgress() {
+                return false;
+            }
 
             @Override
             public boolean step() {
@@ -551,6 +557,8 @@ public final class PlayerActions {
                     complete(Wire.accepted("dig completed"));
                     return true;
                 }
+                digger.setBreakThrough(breakThrough);
+                digger.setOnBreak(this::noteBroken);
                 digger.goal(pos);
                 if (digger.tick(p, PlayerActions.this)) {
                     if (level.getBlockState(pos).isAir()) {

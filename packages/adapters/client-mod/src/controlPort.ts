@@ -33,6 +33,7 @@ export class ClientModControlPort implements ControlPort {
     if (!r.ok) throw new PortError('MOD_ERROR', `${op}: ${r.error ?? 'mod error'}`);
     const receipt: ControlReceipt = { accepted: r.accepted === true, level: (r.level as ControlReceipt['level']) ?? 'sent' };
     if (r.note !== undefined) receipt.note = r.note;
+    if (r.progress !== undefined) receipt.raw = r.progress;
     return receipt;
   }
 
@@ -114,8 +115,8 @@ export class ClientModControlPort implements ControlPort {
 
   // ---- blocks ----
 
-  dig(pos: Vec3): Promise<ControlReceipt> {
-    return this.control('dig', { pos });
+  dig(pos: Vec3, opts?: { breakThrough?: boolean }): Promise<ControlReceipt> {
+    return this.control('dig', { pos, ...(opts?.breakThrough !== undefined ? { breakThrough: opts.breakThrough } : {}) });
   }
 
   place(pos: Vec3, face: Vec3, item?: string): Promise<ControlReceipt> {

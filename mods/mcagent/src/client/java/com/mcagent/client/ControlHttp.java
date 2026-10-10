@@ -234,16 +234,15 @@ public final class ControlHttp {
         return f.get(30, TimeUnit.SECONDS);
     }
 
-    /** Submit a tick-driven task and wait until it finishes (or self-expires). */
+    /** Submit a tick-driven task and wait until it finishes (progress-based stall timeout). */
     private static JsonObject runTask(ControlTask task) throws Exception {
-        long waitMs = Math.max(2000L, task.remainingMs() + 3000L);
         mc.execute(() -> {
             JsonObject err = dispatcher.submit(task);
             if (err != null) {
                 task.complete(err);
             }
         });
-        return task.future().get(waitMs, TimeUnit.MILLISECONDS);
+        return task.future().get(320, TimeUnit.SECONDS);
     }
 
     private static String readBody(HttpExchange ex) throws IOException {

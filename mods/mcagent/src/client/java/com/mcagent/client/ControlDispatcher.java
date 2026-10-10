@@ -59,9 +59,12 @@ public final class ControlDispatcher {
             active = null;
             return;
         }
-        if (t.expired()) {
+        if (t.autoProgress()) {
+            t.touch();
+        }
+        if (t.stalled()) {
             active = null;
-            t.cancel();
+            t.complete(Wire.rejected("no progress for " + (t.sinceProgressMs() / 1000) + "s"));
         }
     }
 

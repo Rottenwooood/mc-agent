@@ -53,6 +53,12 @@ public final class WalkTask extends ControlTask {
         this.stopAtMs = stopAtMs;
         this.allowModify = allowModify;
         this.digger = new Digger(mc);
+        this.digger.setOnBreak(this::noteBroken);
+    }
+
+    @Override
+    public boolean autoProgress() {
+        return false;
     }
 
     @Override
@@ -97,7 +103,11 @@ public final class WalkTask extends ControlTask {
         settle = 0;
 
         if (path.isEmpty() || index >= path.size()) {
-            path = Nav.findPath(level, pblock, target, Math.max(0, range), MAX_NODES, MAX_DIST, allowModify);
+            // Prefer walking around; only tunnel through terrain when there is no clean path.
+            path = Nav.findPath(level, pblock, target, Math.max(0, range), MAX_NODES, MAX_DIST, false);
+            if (path.isEmpty() && allowModify) {
+                path = Nav.findPath(level, pblock, target, Math.max(0, range), MAX_NODES, MAX_DIST, true);
+            }
             index = 0;
             if (path.isEmpty()) {
                 digger.stop();
@@ -111,6 +121,7 @@ public final class WalkTask extends ControlTask {
         double dx = (next.getX() + 0.5) - p.getX();
         double dz = (next.getZ() + 0.5) - p.getZ();
         if (Math.hypot(dx, dz) < 0.75 && Math.abs(next.getY() - p.getY()) < 1.6) {
+            noteMoved();
             index++;
             return false;
         }
