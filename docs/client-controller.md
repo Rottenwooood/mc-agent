@@ -5,6 +5,7 @@
 > 手段:**只替换 `ControlPort` 后端**;原子动作(一级)/ L1 reflex / L3 契约引擎 /
 > `run_method` / 二级动作 / skill / 感知 **全部不变**。
 > 日期:2026-10-10。
+> **现状/设计问题复盘见 `docs/client-controller-review.md`(含仍不稳的部分与待拍板项)。**
 
 ---
 
@@ -78,18 +79,20 @@ mods/mcagent/
 统一入口。请求:`{ "op": "<原语名>", "args": { ... } }`。
 
 **控制类 op**(与 `ControlPort` 方法一一对应),响应:
-`{ ok, accepted, level, note?, result? }`(`accepted/level` 是**原始回执**,永不等于成功判定)。
+`{ ok, accepted, level, note?, progress? }`(`accepted/level` 是**原始回执**,永不等于成功判定;
+`progress` 见 §4.3)。
 
 | op | args | 语义 |
 |---|---|---|
-| `goto` | `pos[x,y,z], range?, timeoutMs?, allowModify?` | 走到某点附近(客户端 A* + 输入驱动) |
+| `goto` | `pos[x,y,z], range?, timeoutMs?, allowModify?` | 走到某点附近;**先走"不破坏"路径,无路才挖穿**;中途破坏的方块进 `progress.blocksBroken` |
 | `follow` | `entityId, distance, durationMs?` | 跟随实体 |
 | `flee` | `entityId, distance, timeoutMs?` | 远离实体 |
 | `lookAt` | `pos[x,y,z]` | 转向 |
 | `wait` | `ticks` | 等待 N tick |
 | `steer` | `controls[], durationMs` | 直接按键(逃生舱) |
 | `stopMotion` | — | 立刻停:清输入 / 停导航 / 松开使用 |
-| `dig` | `pos[x,y,z]` | 挖(自动换最佳工具,按 tick 推进破坏进度) |
+| `respawn` | — | 角色死亡后重生(救回来) |
+| `dig` | `pos[x,y,z], breakThrough?` | 挖;**射线选"邻格是空气且有视线"的暴露面**;`breakThrough=true` 时先挖掉挡路块(隧道),`false` 时被挡即失败 `blocked_by` |
 | `place` | `pos[x,y,z], face[x,y,z], item?` | 放置(参考面 + 可选物品) |
 | `use` | `pos[x,y,z]` | 激活方块 |
 | `attack` | `entityId, weapon?, durationMs?` | 攻击一段时间 |
@@ -124,6 +127,20 @@ mods/mcagent/
 
 错误响应:`{ ok:false, error:"..." }`(HTTP 200;`ok` 字段为准,与观测 Mod 一致)。
 
+### 4.3 响应中的进展(`progress`)
+每个控制 op 的响应都带 `progress`(由 `ControlTask` 累计):
+`{ blocksBroken: ["x,y,z", ...], moved: <推进的路径节点数>, phase: "<阶段>", elapsedMs }`。
+- `blocksBroken` = 该任务**实际破坏**的方块(含挖穿时的挡路块);动作层把它转成
+  `effects`(`block@x,y,z is air`)+ `evidence`,**即使任务最终失败也返回已有进展**(部分进展不丢)。
+- 客户端只读 op 的响应是 `{ ok, result }`(无 `progress`)。
+
+### 4.4 超时 = "无进展超时"(不是硬墙钟)
+`ControlTask` 每次**有进展**(破坏方块 / 推进路径节点 / 换阶段)就刷新计时;只有
+**连续无进展超过 `stallMs`** 才失败,失败信息为 `no progress for Ns`,并把累计 `progress` 一并返回。
+另有一个很宽的绝对上限(300s)兜底,防止真死锁。
+- "有进展"的口径由任务自定:`dig`/`goto` 只在**真正破坏方块或推进节点**时算进展(原地挖同一个
+  方块不算);菜单/等待类任务每个 tick 都算进展(`autoProgress`),但它们内部另有界。
+
 ---
 
 ## 5. 客户端实现要点
@@ -138,7 +155,7 @@ mods/mcagent/
 - 在 `ClientTickEvents.END_CLIENT_TICK` 里逐 tick `step()`;
 - 完成后 complete 对应的 future(HTTP 线程随之返回);
 - 单飞:同一时刻只允许一个控制任务(上层已有 `ControlToken` 串行化,这里再兜底);
-- 每个任务带**墙钟预算**,到点即失败返回(防止卡死)。
+- 超时是**无进展超时**(§4.4):每次进展刷新计时,只有连续无进展才失败,并把累计 `progress` 返回。
 
 ### 5.3 移动 = 输入驱动(玩家合法)
 不直接改速度/位置(服务端会拒绝)。用一个 `ControlledInput extends Input`(覆盖 `tick` 为
@@ -149,16 +166,26 @@ mods/mcagent/
 
 ### 5.4 导航(A* + 走位)
 `goto`:
-1. 在客户端**已加载区块**上做**有界 A***:节点=脚部格;邻居=4/8 向;支持上台阶(≤1)、下落(≤3);
-   要求目标列"脚+头两格可通行且下方有支撑";节点上限 + 距离上限;
-2. 逐 tick 跟随路径:朝下一节点设 yaw + `forwardImpulse=1`,需要时 `jumping`;
-3. 到达判定用**与 `GoalNear` 等价的 3D 距离**(块坐标欧氏距离 ≤ range),并要求**落地稳定**
-   (onGround 连续 2 tick)才报告到达——否则 `go_to` 的后置会采样到下降途中的未稳定位置。
+1. **优先不破坏**:先找 `allowModify=false` 的路径;只有找不到时才(在 `allowModify=true` 时)切到"挖穿"。
+2. 有界 **加权 A***:节点=脚部格;邻居 4/8 向;上台阶≤1;`allowModify` 时下落≤1(大落要挖够不着的块),
+   否则≤3;启发式 ×2.5(实心岩里 1× 启发式会爆);节点/距离上限。
+3. 逐 tick 跟随:朝下一节点设 yaw + `forwardImpulse=1`;**只有落地且贴近节点才推进节点**,
+   **只有落地且就在一级台阶前才跳**(否则会"原地乱蹦");`allowModify` 时先清"身体要过的整段体积"
+   (自身列 + 目标列 + 斜向两角列,脚+头)。
+4. 到达判定:块坐标 3D 距离 ≤ range,且**落地稳定**(onGround 连续 2 tick)。
+5. **安全守卫**:拒绝踏入/坠入岩浆/火/岩浆块/仙人掌/营火/细雪(否则可能直接泡岩浆烧死)。
+
 `follow/flee` 用同一导航:周期重算目标点。
 
 ### 5.5 交互原语(原版路径)
-- `dig`:`gameMode.startDestroyBlock/continueDestroyBlock/stopDestroyBlock`,逐 tick 推进;
-  先用 `ItemStack.isCorrectToolForDrops` 判断并自动换最佳工具。
+- `dig`(核心 `Digger`):每 tick 从眼睛向**目标中心**做射线:
+  - 命中目标 → 挖目标(面=命中面);命中别的实心块 → 挖它(**隧道**,仅当 `breakThrough=true`);
+  - 射线 miss(目标非实心,如草/花)→ 直接挖;
+  - **面选择**:优先"邻格是空气 + 面心离眼睛最近 + 有视线"的暴露面;
+  - 破坏进度**连续**:只在"目标块/面真的变了"时才重启 `start/continue`,**绝不按计时器重启**
+    (否则永远挖不到底);
+  - 明确失败:`out_of_reach` / `unbreakable` / `blocked_by` / `dig stalled`;
+  - 每次破坏前用 `ItemStack.isCorrectToolForDrops` 自动换最佳工具;每破坏一块上报进展。
 - `place/use/useItemOn`:`gameMode.useItemOn(player, MAIN_HAND, BlockHitResult)`;
   `place` 由参考面构造命中;先 `lookAt` 参考块。
 - `attack`:`gameMode.attack` + `player.swing`;`interactEntity`:`gameMode.interact`。
@@ -196,9 +223,14 @@ mods/mcagent/
 
 ## 8. 边界与已知限制(诚实记录)
 
-- **导航**:客户端 A* 只覆盖已加载区块,且是"面向真实输入"的近似,不保证与
-  mineflayer-pathfinder 同等鲁棒(卡住/绕远);`allowModify` 的"边走边挖/搭"暂不实现自动改造,
-  仅记录。
+- **导航**:`allowModify`(边走边挖)已实现(加权 A* + 清身体体积),但**远距离(30+ 格)挖穿到地下目标**
+  仍不稳:搜索空间大、耗时长、执行中可能遇险(岩浆/坠落——现由守卫拦下,但会中断任务)。
+- **危险检测**:目前只在 walker 里 ad hoc 判(岩浆/火/岩浆块/仙人掌/营火/细雪);**没有统一的安全
+  不变量**(L1 reflex 只看敌对/弹射物/血量)。详见 `client-controller-review.md`。
+- **证据分级**:`progress.blocksBroken` 是**客户端自报**,动作层目前把它当权威证据用——**这是错的**,
+  应标 `observed`,或由服务端 observer 事件确认后才升 `authoritative`。
+- **对象→格**:`resolveObject` 取"最近暴露格"是启发式;对矿脉/树"挖哪些格、按什么顺序"应交给组合
+  (`members`/`for_each`)表达。
 - **生产类原语**依赖原版菜单机制,成功率受配方/材料/窗口时序影响,需实机校准。
 - **反作弊/风控**:真实客户端 + 输入驱动 = 与真人一致的运动学,不注入特权动作。
 - **多客户端**:一个客户端进程对应一个身体;要多个身体就多开客户端(端口需区分)。
@@ -207,15 +239,23 @@ mods/mcagent/
 
 ## 9. 验证与运行(实机)
 
-### 9.1 实机验证结论(2026-10-10)
-在**真实 Fabric 1.20.1 客户端**(本地 profile `1.20.1-Fabric 0.19.5`,装了 fabric-api 0.92.12)
-上,经常驻进程(`MCAGENT_CONTROL=client-mod`)**工具面不变(49 个)**跑通:
-- `dig` → 观测 Mod 事件 `actor=Agent`(dirt→air),背包获得 dirt(**服务端权威**);
-- `place` → 事件 air→dirt;
-- `go_to` → `effect=pass`(权威自身位置,含上坡跳跃);
-- `set_block`(原子动作 + 契约)→ `pass`,事件确认;
-- `run_method` 组合可执行;
-- 直接 HTTP:jump/steer/look_at/raycast/world_info/chat 均生效。
+### 9.1 实机验证结论(截至 2026-10-10)
+在**真实 Fabric 1.20.1 客户端**上,经 resident(`MCAGENT_CONTROL=client-mod`)、**工具面不变(49 个)**:
+
+**已验证**
+- 启动 / 入服 / `/health`;感知(`scan_blocks`/`view`/`get_self_status`)经 resident。
+- 走位(不破坏):短 / 中距离到达、**绕路(破坏 0 块)**、不蹦。
+- 单块挖 / 放(`set_block`,服务端事件权威确认:`actor=Agent`);`go_to` / `set_block` 返回 `pass`。
+- 合成链:木板 → 木棍 → 工作台 → 木镐(全部 `pass` + 背包增量)。
+- **正确工作流**:`scan_blocks` → `go_to` 到大致位置 → `run_method(for_each members(handle) → set_block(air))`
+  挖一棵树(7 成员 4 成 3 败,返回每步判定 + 拿到原木)。
+
+**实机中发现并修复的真实缺陷**:多人下 `jumping` 需 `setJumping`;破坏进度被计时器清零(永远挖不到底);
+同一 tick 连发菜单点击 desync;选到材料不满足的配方;开工作台后菜单槽位偏移;`scan_blocks` 裸字符串
+`match` 被静默当 `"any"`;`resolveObject` 不选暴露格;walker 乱蹦(空中推进节点/远处起跳);隧道把角色
+带进岩浆。
+
+**仍不稳**:远距离挖穿到地下矿脉(见 §8)。
 
 上层(执行引擎 / L1 reflex / L3 契约 / 工具面 / 二级动作 / skill / 感知)**零改动**。
 
