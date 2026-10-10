@@ -103,16 +103,34 @@ export class MineflayerControlPort implements ControlPort {
 
   async goto(pos: Vec3, opts: MoveOptions = {}): Promise<ControlReceipt> {
     const bot = this.b();
-    this.setMovements(bot, opts.allowModify === true);
     const range = opts.range ?? 1;
     const timeoutMs = opts.timeoutMs ?? 12000;
-    try {
+    const goal = new goals.GoalNear(pos[0], pos[1], pos[2], range);
+    const stop = (): void => { try { bot.pathfinder.stop(); } catch { /* ignore */ } };
+    const attempt = async (allowModify: boolean): Promise<void> => {
+      this.setMovements(bot, allowModify);
       await Promise.race([
-        bot.pathfinder.goto(new goals.GoalNear(pos[0], pos[1], pos[2], range)),
+        bot.pathfinder.goto(goal),
         sleep(timeoutMs).then(() => Promise.reject(new Error('goto timeout'))),
       ]);
-      return ok('observed', 'path resolved');
+    };
+    try {
+      // Prefer walking around; only tunnel through terrain when there is no clean path — the same
+      // semantics as the client-mod backend. A `canDig` movement set thrashes in tight terrain
+      // (that is what wedged direct set_block navigation even when a clean path existed).
+      try {
+        await attempt(false);
+        return ok('observed', 'path resolved');
+      } catch (clean) {
+        stop();
+        if (opts.allowModify !== true) throw clean;
+        await attempt(true);
+        return ok('observed', 'path resolved (tunnel)');
+      }
     } catch (e) {
+      // Never leave a goal running: a timed-out `pathfinder.goto` keeps thrashing and wedges the
+      // NEXT action too (observed live as the bot plateauing/oscillating).
+      stop();
       return no(String((e as Error)?.message ?? e));
     }
   }

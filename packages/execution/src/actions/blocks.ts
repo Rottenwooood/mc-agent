@@ -10,6 +10,8 @@ import { contract } from './types.js';
 import { resolveTarget } from './target.js';
 
 const AIR = 'minecraft:air';
+/** Interaction reach — keep consistent with scan_blocks' `touchable` (perception REACH). */
+const REACH = 4.5;
 
 /** Turn a control receipt's progress (blocks broken while tunnelling) into effects/evidence. */
 function progressBits(r: ControlReceipt): {
@@ -92,10 +94,21 @@ const setBlock: AtomicAction = {
 
       if (navigate) {
         const self = await ctx.world.selfPos();
-        if (self && distance(self, pos) > 4) {
-          const g = await ctx.ctrl.goto(pos, { range: 2, allowModify });
-          if (!g.accepted) {
-            return mk({ effectStatus: 'unobservable', controlStatus: 'blocked', reason: 'precondition_failed', reasonDetail: g.note });
+        // Only walk when the target is OUT of interaction reach. Navigating at `> 4` walked for
+        // targets scan_blocks already calls `touchable` (<= REACH), and the pathfinder could wedge
+        // on a GoalNear that is unsatisfiable when the block is embedded in terrain. If the walk
+        // fails but the bot ended up within reach anyway, fall through and dig.
+        if (self && distance(self, pos) > REACH) {
+          const g = await ctx.ctrl.goto(pos, { range: 2, allowModify, timeoutMs: 15000 });
+          const self2 = await ctx.world.selfPos();
+          const inReach = !!self2 && distance(self2, pos) <= REACH;
+          if (!g.accepted && !inReach) {
+            return mk({
+              effectStatus: 'unobservable',
+              controlStatus: 'blocked',
+              reason: 'precondition_failed',
+              reasonDetail: `navigation failed: ${g.note}`,
+            });
           }
         }
       }
