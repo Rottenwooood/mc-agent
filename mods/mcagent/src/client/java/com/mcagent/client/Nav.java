@@ -226,8 +226,12 @@ public final class Nav {
         Node(BlockPos pos, double g, double h, Node parent) {
             this.pos = pos;
             this.g = g;
-            this.f = g + h;
+            this.f = g + HEURISTIC_WEIGHT * h;
             this.parent = parent;
         }
     }
+
+    /** Weighted A*: inflate the heuristic so the search is guided (greedy) and stays tractable
+     * inside uniform solid rock, where every cell is traversable and a 1x heuristic explodes. */
+    private static final double HEURISTIC_WEIGHT = 2.5;
 }

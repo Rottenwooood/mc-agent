@@ -163,6 +163,8 @@ public final class ControlHttp {
                     dispatcher.cancelActive();
                     return actions.stopMotion();
                 });
+            case "respawn":
+                return inline(actions::respawn);
             // blocks
             case "dig":
                 return runTask(actions.digTask(args));

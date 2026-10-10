@@ -4,6 +4,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,8 +24,8 @@ public final class WalkTask extends ControlTask {
         BlockPos target(LocalPlayer p, ClientLevel level);
     }
 
-    private static final int MAX_NODES = 6000;
-    private static final double MAX_DIST = 128.0;
+    private static final int MAX_NODES = 60000;
+    private static final double MAX_DIST = 256.0;
 
     private final Minecraft mc;
     private final PlayerActions actions;
@@ -36,9 +38,7 @@ public final class WalkTask extends ControlTask {
 
     private List<BlockPos> path = List.of();
     private int index;
-    private double lastX;
-    private double lastZ;
-    private int sinceProgress;
+    private int nodeTicks;
     private int recomputes;
     private int settle;
 
@@ -109,6 +109,7 @@ public final class WalkTask extends ControlTask {
                 path = Nav.findPath(level, pblock, target, Math.max(0, range), MAX_NODES, MAX_DIST, true);
             }
             index = 0;
+            nodeTicks = 0;
             if (path.isEmpty()) {
                 digger.stop();
                 input.reset();
@@ -120,9 +121,25 @@ public final class WalkTask extends ControlTask {
         BlockPos next = path.get(index);
         double dx = (next.getX() + 0.5) - p.getX();
         double dz = (next.getZ() + 0.5) - p.getZ();
-        if (Math.hypot(dx, dz) < 0.75 && Math.abs(next.getY() - p.getY()) < 1.6) {
+        double hd = Math.hypot(dx, dz);
+        double dy = next.getY() - p.getY();
+        // Advance only when standing near the node: advancing mid-air caused the bouncing.
+        if (hd < 0.7 && Math.abs(dy) < 1.6 && p.onGround()) {
             noteMoved();
             index++;
+            nodeTicks = 0;
+            return false;
+        }
+        if (++nodeTicks > 100) {
+            nodeTicks = 0;
+            recomputes++;
+            path = List.of();
+            if (recomputes > 4) {
+                digger.stop();
+                input.reset();
+                complete(Wire.rejected("stuck: could not reach target"));
+                return true;
+            }
             return false;
         }
 
@@ -143,39 +160,24 @@ public final class WalkTask extends ControlTask {
                 input.reset();
                 digger.goal(dig);
                 digger.tick(p, actions);
-                // Breaking a block IS progress: don't let the stuck detector fire while digging.
-                sinceProgress = 0;
-                lastX = p.getX();
-                lastZ = p.getZ();
+                nodeTicks = 0; // breaking a block IS progress
                 return false;
             }
             digger.stop();
         }
 
         Aim.look(p, next.getX() + 0.5, next.getY() + 0.5, next.getZ() + 0.5);
+        // Safety: never step into, or fall into, lava/fire/cactus/powder snow.
+        if (hazardAhead(level, next)) {
+            digger.stop();
+            input.reset();
+            complete(Wire.rejected("hazard ahead: refusing to enter lava/fire"));
+            return true;
+        }
         input.move(1.0F, 0.0F);
-        input.jumping = next.getY() > p.getY() + 0.6;
+        // Jump only when standing right at a one-block step up (never bounce from far away).
+        input.jumping = p.onGround() && dy > 0.5 && hd < 1.6;
         input.shiftKeyDown = false;
-
-        // Stuck detection: if we barely moved in a while, recompute; give up after repeated stalls.
-        if (Math.hypot(p.getX() - lastX, p.getZ() - lastZ) < 0.05) {
-            sinceProgress++;
-        } else {
-            sinceProgress = 0;
-            lastX = p.getX();
-            lastZ = p.getZ();
-        }
-        if (sinceProgress > 40) {
-            sinceProgress = 0;
-            recomputes++;
-            path = List.of();
-            if (recomputes > 3) {
-                digger.stop();
-                input.reset();
-                complete(Wire.rejected("stuck: could not reach target"));
-                return true;
-            }
-        }
         return false;
     }
 
@@ -185,8 +187,28 @@ public final class WalkTask extends ControlTask {
         input.reset();
     }
 
-    /**
-     * Blocks the player's 2-tall body must have free to step from {@code here} to {@code next}:
+    /** Hazard cells the body would touch (feet/head) or land on (up to a 3-block fall). */
+    private static boolean hazardAhead(ClientLevel level, BlockPos next) {
+        if (isHazard(level, next) || isHazard(level, next.above())) {
+            return true;
+        }
+        for (int dy = 1; dy <= 3; dy++) {
+            if (isHazard(level, next.below(dy))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isHazard(ClientLevel level, BlockPos pos) {
+        BlockState st = level.getBlockState(pos);
+        return st.is(Blocks.LAVA) || st.is(Blocks.FIRE) || st.is(Blocks.SOUL_FIRE)
+                || st.is(Blocks.MAGMA_BLOCK) || st.is(Blocks.CACTUS)
+                || st.is(Blocks.CAMPFIRE) || st.is(Blocks.SOUL_CAMPFIRE)
+                || st.is(Blocks.POWDER_SNOW);
+    }
+
+    /** Blocks the player's 2-tall body must have free to step from {@code here} to {@code next}:
      * both columns across the whole vertical span (so head clearance is not missed on a step
      * up/down), plus the two corner columns when stepping diagonally.
      */

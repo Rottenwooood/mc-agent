@@ -176,6 +176,16 @@ public final class PlayerActions {
         return Wire.accepted("looked");
     }
 
+    public JsonObject respawn() {
+        LocalPlayer p = mc.player;
+        if (p != null && p.isDeadOrDying()) {
+            p.respawn();
+            mc.setScreen(null);
+            return Wire.accepted("respawned");
+        }
+        return Wire.accepted("not dead");
+    }
+
     public JsonObject stopMotion() {
         input.reset();
         LocalPlayer p = mc.player;
