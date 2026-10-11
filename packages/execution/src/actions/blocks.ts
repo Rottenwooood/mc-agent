@@ -99,7 +99,7 @@ const setBlock: AtomicAction = {
         // on a GoalNear that is unsatisfiable when the block is embedded in terrain. If the walk
         // fails but the bot ended up within reach anyway, fall through and dig.
         if (self && distance(self, pos) > REACH) {
-          const g = await ctx.ctrl.goto(pos, { range: 2, allowModify, timeoutMs: 15000 });
+          const g = await ctx.ctrl.goto(pos, { range: 3, allowModify, timeoutMs: 8000 });
           const self2 = await ctx.world.selfPos();
           const inReach = !!self2 && distance(self2, pos) <= REACH;
           if (!g.accepted && !inReach) {

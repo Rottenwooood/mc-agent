@@ -109,14 +109,16 @@ export class MineflayerControlPort implements ControlPort {
     const stop = (): void => { try { bot.pathfinder.stop(); } catch { /* ignore */ } };
     try {
       // Prefer walking around; only tunnel through terrain when there is no clean path — the same
-      // semantics as the client-mod backend. A `canDig` movement set thrashes in tight terrain.
+      // semantics as the client-mod backend. `navigate` succeeds ONLY on actual arrival, so a clean
+      // attempt that cannot get there falls through to the tunnelling attempt instead of
+      // short-circuiting it (mineflayer's `goto` also resolves when it gives up with an empty path).
       try {
-        await this.navigate(bot, goal, pos, false, timeoutMs);
+        await this.navigate(bot, goal, pos, range, false, Math.min(timeoutMs, 6000));
         return ok('observed', 'path resolved');
       } catch (clean) {
         stop();
         if (opts.allowModify !== true) throw clean;
-        await this.navigate(bot, goal, pos, true, timeoutMs);
+        await this.navigate(bot, goal, pos, range, true, timeoutMs);
         return ok('observed', 'path resolved (tunnel)');
       }
     } catch (e) {
@@ -128,12 +130,13 @@ export class MineflayerControlPort implements ControlPort {
   }
 
   /**
-   * One pathfinder attempt, watching for progress. A terrain-modifying attempt can stall because
-   * the pathfinder refuses to clear the block in front (e.g. under gravel/sand or beside liquid):
-   * when the bot stops moving, break the block blocking its 2-tall body toward the goal — exactly
-   * what a player does to unstick.
+   * One pathfinder attempt that succeeds ONLY when the bot actually arrives (within `range`), so a
+   * `pathfinder.goto` that resolves on an empty path can never be mistaken for success. While a
+   * terrain-modifying attempt stalls it breaks the block blocking the bot's 2-tall body toward the
+   * goal — the pathfinder refuses to clear some blocks (under gravel/sand, beside liquid), which is
+   * what wedged navigation in the first place.
    */
-  private async navigate(bot: any, goal: unknown, pos: Vec3, allowModify: boolean, timeoutMs: number): Promise<void> {
+  private async navigate(bot: any, goal: unknown, pos: Vec3, range: number, allowModify: boolean, timeoutMs: number): Promise<void> {
     this.setMovements(bot, allowModify);
     let settled = 'pending';
     void bot.pathfinder
@@ -141,10 +144,12 @@ export class MineflayerControlPort implements ControlPort {
       .then(() => { settled = 'ok'; })
       .catch((e: unknown) => { settled = 'err:' + String((e as Error)?.message ?? e); });
     const deadline = Date.now() + timeoutMs;
+    const arrived = (): boolean => bot.entity.position.distanceTo(V(pos)) <= range + 1;
     let last = bot.entity.position.clone();
     let lastMove = Date.now();
     while (Date.now() < deadline) {
       await sleep(300);
+      if (arrived()) return;
       if (settled !== 'pending') break;
       const cur = bot.entity.position;
       if (cur.distanceTo(last) > 0.3) {
@@ -155,7 +160,8 @@ export class MineflayerControlPort implements ControlPort {
         lastMove = Date.now();
       }
     }
-    if (settled === 'ok') return;
+    if (arrived()) return;
+    if (settled === 'ok') throw new Error('did not arrive');
     if (settled !== 'pending') throw new Error(settled.slice(4));
     throw new Error('goto timeout');
   }
