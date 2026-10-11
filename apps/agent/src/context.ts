@@ -29,6 +29,8 @@ export interface AppContext {
 
 export interface CreateOptions {
   username?: string;
+  /** Skip connecting the control backend now (the resident binds its socket first, then connects). */
+  deferConnect?: boolean;
 }
 
 /** Event patches + window shift (2s) and a full low-frequency sweep (30s). */
@@ -80,7 +82,7 @@ export async function createContext(opts: CreateOptions = {}): Promise<AppContex
   const backend = process.env.MCAGENT_CONTROL ?? 'mineflayer';
   const ctrl: ControlPort =
     backend === 'client-mod' ? new ClientModControlPort() : new MineflayerControlPort({ username });
-  await ctrl.connect();
+  if (opts.deferConnect !== true) await ctrl.connect();
 
   const world = new World(new TelemetryWorldPort(undefined, username));
   const token = new ControlToken();

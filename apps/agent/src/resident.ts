@@ -27,7 +27,11 @@ export interface Resident {
 }
 
 export async function startResident(): Promise<Resident> {
-  const ctx = await createContext();
+  // Bind the socket BEFORE connecting the body, so the MCP bridge can attach even if the game
+  // server is slow or down. Otherwise the bridge times out ("resident did not come up") and
+  // OpenCode marks the mc-agent MCP "failed" for the whole session. Body-dependent tools just
+  // return errors until the bot is connected.
+  const ctx = await createContext({ deferConnect: true });
   const sockPath = socketPath();
   fs.mkdirSync(path.dirname(sockPath), { recursive: true });
   try {
@@ -121,6 +125,12 @@ export async function startResident(): Promise<Resident> {
     server.once('error', reject);
     server.listen(sockPath, () => resolve());
   });
+
+  // Socket is up: the bridge can attach now. Connect the body in the background.
+  void ctx.ctrl
+    .connect()
+    .then(() => console.error('[resident] body connected'))
+    .catch((e) => console.error('[resident] body connect failed:', String((e as Error)?.message ?? e)));
 
   return {
     ctx,

@@ -3,7 +3,7 @@
 import { startResident } from './resident.js';
 
 const resident = await startResident();
-console.error(`[resident] listening at ${resident.sockPath}; bot ${resident.ctx.username} connected`);
+console.error(`[resident] listening at ${resident.sockPath} (user ${resident.ctx.username}; body connecting…)`);
 
 const stop = async () => {
   try {

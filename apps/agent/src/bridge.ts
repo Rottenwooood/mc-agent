@@ -70,6 +70,7 @@ class ResidentClient {
   private readonly pending = new Map<number, Pending>();
   private id = 1;
   private attaching: Promise<void> | null = null;
+  private attachedOnce = false;
   /** Invoked when the resident reports that its tool surface changed (tools/list_changed). */
   onToolsChanged: (() => void) | null = null;
 
@@ -83,6 +84,10 @@ class ResidentClient {
     sock.on('data', (d) => this.onData(String(d)));
     sock.on('error', () => this.onClose());
     sock.on('close', () => this.onClose());
+    // Re-attached after a drop/retry: ask the client to re-list (the earlier list may have been
+    // empty because the resident was not up yet).
+    if (this.attachedOnce) this.onToolsChanged?.();
+    this.attachedOnce = true;
   }
 
   private async ensure(): Promise<void> {
@@ -176,15 +181,29 @@ export async function startBridge(): Promise<void> {
   };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const r = await client.request('list');
-    if (r.ok && 'tools' in r) return { tools: r.tools as unknown as ToolSummary[] };
-    return { tools: [] };
+    try {
+      const r = await client.request('list');
+      if (r.ok && 'tools' in r) return { tools: r.tools as unknown as ToolSummary[] };
+      return { tools: [] };
+    } catch {
+      // Resident not up yet — return an empty list instead of rejecting, so the MCP still loads
+      // (OpenCode marks a server "failed" if its first tools/list errors out). It re-lists later.
+      return { tools: [] };
+    }
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const name = req.params.name;
     const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-    const r = await client.request('call', name, args);
+    let r: Res;
+    try {
+      r = await client.request('call', name, args);
+    } catch (e) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ tool: name, effectStatus: 'unobservable', controlStatus: 'needs_replan', reason: 'resident_error', error: String((e as Error)?.message ?? e) }) }],
+        isError: true,
+      };
+    }
     if (!r.ok || !('result' in r)) {
       return {
         content: [{ type: 'text', text: JSON.stringify({ tool: name, effectStatus: 'unobservable', controlStatus: 'needs_replan', reason: 'resident_error', error: (r as { error?: string }).error }) }],
