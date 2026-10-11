@@ -59,8 +59,9 @@ tools/server-down.sh   # 停 server(优雅退出,会存档)
 
 - `docs/PROJECT-OVERVIEW.md` — 项目总览(逐模块 + 逐公开 API)。
 - `docs/IMPLEMENTATION-STATUS.md` — 实现状态与门禁。
+- `docs/running-the-agent.md` — **跑 agent 的三种方式**(自定义 prompt / 一键 benchmark / 交互 session)。
+- `docs/manual-test-mineflayer.md` — 手动测试指南(起 server → 重置世界 → 起 agent → 场景 → OP → 清理)。
 - `docs/client-controller.md` / `docs/client-controller-review.md` — 真实客户端控制后端。
-- `docs/manual-test-mineflayer.md` — 手动测试指南。
 
 ## 观测 Mod 的 HTTP 接口(只读,`127.0.0.1:8765`)
 

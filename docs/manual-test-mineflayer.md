@@ -105,6 +105,9 @@ collect({radius:8}); get_inventory()
 
 **判定标准**：`go_to` / `run_method` 应在有限时间内返回（不再无限挂起），且角色**真的移动/挖穿**到目标（`get_self_status` 位置变化、`get_inventory` 出现 `coal`）。
 
+> 上面是手动一步步调；三种"跑 agent"的方式（① 脚本+自定义 prompt `tools/run-prompt.sh`、
+> ② 一键 benchmark `tools/bench.sh`、③ 自己开 TUI session 下任务）见 `docs/running-the-agent.md`。
+
 ## 6. 观察
 
 - 只读观测（脚本）：

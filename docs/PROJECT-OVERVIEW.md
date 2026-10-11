@@ -466,6 +466,7 @@ tools/setup-bot.mjs ... cmd|dig|fixture|fixture-at  # 假玩家 fixture/扰动(�
 - `docs/client-controller.md` — **真实客户端控制适配层**(只换 ControlPort 后端;线协议、实现要点、实机验证、运行)。
 - `docs/client-controller-review.md` — **Route B 现状梳理与设计问题**(复盘 + 可选改动方向,待拍板)。
 - `docs/manual-test-mineflayer.md` — **手动测试指南**(起 server / 重置世界 / 起 agent / 测试场景 / OP / 清理)。
+- `docs/running-the-agent.md` — **跑 agent 的三种方式**(自定义 prompt / 一键 benchmark / 交互 session)。
 - `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约、L0–L5、动作库、进程/Mod 契约、可视化。
 - `docs/world-map-and-composition.md` — 表面壳/地图/通用查询/§12 感知与寻址/有界词表/拒绝的反模式。
 - `docs/eval-benchmark.md` — 实机 benchmark(种子/任务/验收/指标/消融)。
