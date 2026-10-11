@@ -35,6 +35,10 @@ curl -s http://127.0.0.1:8765/health      # {"ok":true,...} 即就绪
 
 - 观测 HTTP：`127.0.0.1:8765`（只读）。
 - 服务器：`127.0.0.1:25565`，离线模式，难度 peaceful。
+- **停 server**（优雅退出，会存档）：
+  ```sh
+  tools/server-down.sh
+  ```
 
 ## 3. 重置世界（换/固定种子）
 
@@ -105,27 +109,22 @@ collect({radius:8}); get_inventory()
 
 ## 7. 给玩家 OP
 
-`ops.json` 里已有 `Agent`、`Setup`。要给新玩家 OP，用一个已在 ops.json 的名字（`Setup`）临时连一个 bot 跑 `/op`：
+`ops.json` 里已有 `Agent`、`Setup`。用仓库自带的 setup/干扰 bot（`tools/setup-bot.mjs`，以已在 ops.json 的 `Setup` 身份连服并执行命令）给新玩家 OP：
 ```sh
-# 见 tools 里的做法：用 mineflayer 连一个名为 Setup 的 bot，chat("/op <name>")
+# 第 1 个参数：能解析 mineflayer 的目录（adapter 包）
+node tools/setup-bot.mjs packages/adapters/mineflayer cmd "/op Rotten_wooood"
+# 其它用法：cmd "<任意命令>" / dig <x> <y> <z> / fixture <n>
 ```
 （或直接编辑 `mods/mcagent/run/ops.json` 后重启 server；离线 UUID = md5("OfflinePlayer:<name>") 加版本位。）
 
 ## 8. 收尾 / 清理
 
-**杀常驻进程**（注意：`pkill -f 'main-resident'` 会误杀自己的 shell —— 用 /proc 精确匹配）：
 ```sh
-for d in /proc/[0-9]*; do
-  pid=${d#/proc/}; [ "$pid" = "$$" ] && continue
-  cl=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)
-  case "$cl" in "node "*"main-resident.js"*) kill "$pid" 2>/dev/null;; esac
-done
+tools/agent-down.sh    # 杀所有常驻进程（bot owner）
+tools/server-down.sh   # 停 server（优雅退出，会存档）
 ```
 
-杀 server（reset 脚本里用的 bracket 技巧避免自匹配）：
-```sh
-pkill -f '[n]et.fabricmc.devlaunchinjector.Main'
-```
+`agent-down.sh` 用 /proc 精确匹配，避免 `pkill -f main-resident` 误杀自己的 shell。
 
 ---
 
