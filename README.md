@@ -11,13 +11,13 @@
 ```text
 mc-agent/
 ├── env.sh                 # source 后激活 JDK 25(Fabric/Loom 运行需要)
-├── mc-mod/                # Fabric 1.20.1 服务端 Mod:只读观测 HTTP
-├── agent/                 # Node/Mineflayer:控制 + 断言
-│   └── src/
-│       ├── observer.js    # 观测 Mod 的 HTTP 客户端
-│       └── scenarios/     # 场景(意图)脚本
-├── tools/                 # 启动脚本
-└── docs/                  # 设计与调研文档(见 docs/research/INDEX.md)
+├── mods/mcagent/          # 一个 Fabric Mod,两个环境:
+│                          #   main   = 服务端只读观测 HTTP(127.0.0.1:8765)
+│                          #   client = 真实客户端本地玩家控制 HTTP(127.0.0.1:8766)
+├── packages/              # 框架(后端无关):contracts / world / execution / tasks / knowledge / interfaces/mcp
+├── apps/agent/            # 常驻进程(身体 owner)+ MCP 桥
+├── tools/                 # server-up/down · reset-world · agent-up/down · launch-client …
+└── docs/                  # 设计 / 状态 / 指南(先读 docs/PROJECT-OVERVIEW.md)
 ```
 
 ## 环境(已配置)
@@ -33,15 +33,34 @@ mc-agent/
 # 1) 起服务器(带只读观测 Mod),开发用
 tools/server-up.sh
 
-# 2) 另一个终端:跑一个场景(砍树取木,生存模式)
-tools/agent-up.sh
+# 2) 另一个终端:起常驻 agent(默认 mineflayer 后端)
+tools/agent-up.sh --server 127.0.0.1:25565 --user Bot
 ```
 
-带参数:
+换后端 / 服务器 / 名字:
 
 ```sh
-CHOP_BLOCK=minecraft:oak_log CHOP_COUNT=5 MC_USER=Bot tools/agent-up.sh
+tools/agent-up.sh --backend client-mod --user Agent    # 真实客户端本地玩家(需先开客户端)
+tools/agent-up.sh --server 10.0.0.5:25566 --user Bot   # 别的服务器
+tools/agent-up.sh --help                                # 全部参数
 ```
+
+停止:
+
+```sh
+tools/agent-down.sh    # 停常驻进程(身体)
+tools/server-down.sh   # 停 server(优雅退出,会存档)
+```
+
+> 完整手动测试流程(起 server → 重置世界 → 起 agent → 测试场景 → OP → 清理)见
+> `docs/manual-test-mineflayer.md`。
+
+## 文档
+
+- `docs/PROJECT-OVERVIEW.md` — 项目总览(逐模块 + 逐公开 API)。
+- `docs/IMPLEMENTATION-STATUS.md` — 实现状态与门禁。
+- `docs/client-controller.md` / `docs/client-controller-review.md` — 真实客户端控制后端。
+- `docs/manual-test-mineflayer.md` — 手动测试指南。
 
 ## 观测 Mod 的 HTTP 接口(只读,`127.0.0.1:8765`)
 

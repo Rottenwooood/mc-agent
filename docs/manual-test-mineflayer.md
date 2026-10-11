@@ -48,20 +48,27 @@ tools/reset-world.sh 5002      # 停 server → 删世界 → 设 level-seed →
 
 会**清空玩家数据**（背包/位置），但 `ops.json` 保留。重置后 server 会重启，**必须重启 agent**（见下）。
 
-## 4. 起 agent（mineflayer 后端，默认）
+## 4. 起 agent（默认 mineflayer 后端）
 
 ```sh
-# 先确保没有残留常驻进程（见第 8 节），再起一个
-MCAGENT_CONTROL=mineflayer MC_USER=Bot \
-  setsid node apps/agent/dist/main-resident.js > /tmp/opencode/resident-mf.log 2>&1 < /dev/null &
+tools/agent-down.sh                    # 先清残留（见第 8 节）
+setsid tools/agent-up.sh --server 127.0.0.1:25565 --user Bot \
+  > /tmp/opencode/resident.log 2>&1 < /dev/null &
 sleep 8
-cat /tmp/opencode/resident-mf.log      # [resident] listening ...; bot Bot connected
+cat /tmp/opencode/resident.log         # agent-up: backend=... ; [resident] listening ...; bot Bot connected
 ```
 
-- 后端选择：`MCAGENT_CONTROL=mineflayer`（默认）或 `client-mod`（真实客户端本地玩家）。
-- 用户名：`MC_USER=Bot`（观测与操作的对象都是这个名字）。
+换服务器 / 后端 / 名字：
+
+```sh
+tools/agent-up.sh --server 10.0.0.5:25566 --user Bot     # 别的服务器
+tools/agent-up.sh --backend client-mod --user Agent      # 真实客户端本地玩家
+tools/agent-up.sh --help                                 # 全部参数
+```
+
+- `--backend`：`mineflayer`（默认，协议客户端 bot）或 `client-mod`（真实客户端本地玩家）。
+- `--server HOST[:PORT]` / `--user` / `--version` / `--reflex` / `--actions` / `--skills`。
 - 常驻进程监听 `/tmp/opencode/mc-agent.sock`；MCP 桥 `apps/agent/dist/main-bridge.js`（opencode.json 里配置）连它，把工具暴露给模型。
-- **默认后端就是 mineflayer**：只要 server 在跑，直接起 agent 即可；agent 会自己连服。
 
 ## 5. 测试场景
 
