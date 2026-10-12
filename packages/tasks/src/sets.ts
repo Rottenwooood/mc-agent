@@ -147,8 +147,8 @@ export async function evalSet(ctx: ActionContext, set: SetExpr, vars: Vars): Pro
       return items.map((s) => ({ slot: s.slot, item: s.item, count: s.count }));
     }
     case 'entities': {
-      const within = set.match?.within ?? 32;
-      const es = await world.entities(within);
+      const radius = set.match?.radius ?? 32;
+      const es = await world.entities(radius);
       if (isUnknown(es)) return [];
       const self = await world.selfPos();
       let list = es.value;

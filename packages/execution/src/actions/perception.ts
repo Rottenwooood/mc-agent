@@ -49,16 +49,6 @@ function nearObjects(cells: readonly { pos: Vec3; block: string }[], self: Vec3)
   return out;
 }
 
-async function reachableFor(ctx: ActionContext, o: WorldObject): Promise<boolean | null> {
-  if (o.touchable) return true;
-  if (o.edgeDistance > 16) return null;
-  try {
-    return await ctx.ctrl.canReach(o.anchor, { range: 2 });
-  } catch {
-    return null;
-  }
-}
-
 function bboxOf(cells: readonly Vec3[]): { min: Vec3; max: Vec3 } | null {
   if (cells.length === 0) return null;
   const min: Vec3 = [Infinity, Infinity, Infinity];
@@ -88,7 +78,6 @@ function objectBrief(o: WorldObject, self?: Vec3 | null): Record<string, unknown
     label: o.label,
     size: o.size,
     dir: o.dir,
-    center_distance: o.centerDistance,
     edge_distance: o.edgeDistance,
     touchable: o.touchable,
     sample: o.anchor,
@@ -168,13 +157,14 @@ const scanBlocks: AtomicAction = {
   contract: contract({
     name: 'scan_blocks',
     description:
-      'Scan for semantic OBJECTS around the bot: aggregates air/water-exposed, connected, same-kind blocks into objects (handle + label + size + center_distance + edge_distance + compass dir + touchable/reachable). Also lists interactable blocks, entities and liquids. match may be a block/tag or "any" (category scan). Default radius 24; server-side filtered, low latency. Coordinates are only a sample.',
+      'Scan for semantic OBJECTS around the bot: aggregates air/water-exposed, connected, same-kind blocks into objects. Each object: handle, kind, label, size, compass dir, edge_distance, touchable, sample (a cell), bbox (extent), and for liquids liquid/dangerous/adjacent/wouldFlood. Returns blocks + interactables + liquids; entities only with entities:true (use scan_entities otherwise). match may be a block/tag or "any" (category scan). Default radius 24; server-side filtered, low latency. Coordinates are only a sample.',
     params: {
       type: 'object',
       properties: {
         match: { description: 'block/tag selector {block}|{tag}, or "any" for a category scan' },
         radius: { type: 'number', default: 24 },
         neighbor: { type: 'string', enum: ['face', 'edge'], default: 'face' },
+        entities: { type: 'boolean', default: false, description: 'Also include nearby entities (otherwise use scan_entities).' },
       },
       additionalProperties: false,
     },
@@ -221,32 +211,30 @@ const scanBlocks: AtomicAction = {
     const blocks = objs.filter((o) => !INTERACTABLE.has(o.label));
     const interactables = objs.filter((o) => INTERACTABLE.has(o.label));
     const liquids = nearObjects(fluidCells, self);
-    const ents = await ctx.world.entities(radius);
-    const entities = isUnknown(ents)
-      ? []
-      : ents.value.map((e) => {
-          const d = Number(distance(self, e.pos).toFixed(2));
-          return {
-            handle: entityHandle(e.id),
-            label: e.type,
-            hostile: e.hostile === true,
-            dir: compassFrom(self, e.pos),
-            center_distance: d,
-            edge_distance: d,
-            touchable: d <= REACH,
-            sample: e.pos,
-          };
-        });
+    // Entities are opt-in: scan_entities already owns them, and dumping every nearby mob bloats
+    // the response (observed: ~2800 lines). Only queried when explicitly requested.
+    const entities =
+      args.entities === true
+        ? await (async () => {
+            const ents = await ctx.world.entities(radius);
+            if (isUnknown(ents)) return [];
+            return ents.value.slice(0, 16).map((e) => {
+              const d = Number(distance(self, e.pos).toFixed(2));
+              return {
+                handle: entityHandle(e.id),
+                label: e.type,
+                hostile: e.hostile === true,
+                dir: compassFrom(self, e.pos),
+                distance: d,
+                touchable: d <= REACH,
+                sample: e.pos,
+              };
+            });
+          })()
+        : [];
 
-    const pack = async (o: WorldObject): Promise<Record<string, unknown>> => ({
-      ...objectBrief(o, self),
-      reachable: await reachableFor(ctx, o),
-    });
-    const brief = async (list: WorldObject[], cap = 16): Promise<Record<string, unknown>[]> => {
-      const out: Record<string, unknown>[] = [];
-      for (const o of list.slice(0, cap)) out.push(await pack(o));
-      return out;
-    };
+    const brief = async (list: WorldObject[], cap = 16): Promise<Record<string, unknown>[]> =>
+      list.slice(0, cap).map((o) => objectBrief(o, self));
     const blockList = await brief(blocks);
     const interactableList = await brief(interactables);
     const liquidList = await brief(liquids);
@@ -361,16 +349,27 @@ const scanEntities: AtomicAction = {
     const filters = String(args.types ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const entities = r.value
       .filter((e) => filters.length === 0 || filters.some((f) => e.type.includes(f)))
-      .map((e) => ({ id: e.id, type: e.type, hostile: e.hostile === true, dir: self ? compassFrom(self, e.pos) : null, distance: self ? Number(distance(self, e.pos).toFixed(2)) : null }));
+      .map((e) => {
+        const d = self ? Number(distance(self, e.pos).toFixed(2)) : null;
+        return {
+          handle: entityHandle(e.id),
+          label: e.type,
+          hostile: e.hostile === true,
+          dir: self ? compassFrom(self, e.pos) : null,
+          distance: d,
+          touchable: d !== null && d <= REACH,
+          sample: e.pos,
+        };
+      });
     return pass({ data: { count: entities.length, entities } });
   },
 };
 
 const findNearest: AtomicAction = {
-  contract: contract({ name: 'find_nearest', description: 'Nearest block of an id near the bot: presence, compass direction, distance, in-reach. (Prefer scan_blocks for grouped objects.)', params: { type: 'object', properties: { block: { type: 'string' }, within: { type: 'integer', default: 48 } }, required: ['block'], additionalProperties: false }, effectClass: 'read' }),
+  contract: contract({ name: 'find_nearest', description: 'The nearest block of `block` within `radius` blocks of the bot: {found, block, dir, distance, in_reach}. (For grouped objects use scan_blocks.)', params: { type: 'object', properties: { block: { type: 'string', description: 'block id, e.g. minecraft:stone' }, radius: { type: 'integer', default: 48 } }, required: ['block'], additionalProperties: false }, effectClass: 'read' }),
   async run(ctx, args): Promise<ActionResult> {
     const block = String(args.block);
-    const r = await ctx.world.findNearestBlock(block, Number(args.within ?? 48));
+    const r = await ctx.world.findNearestBlock(block, Number(args.radius ?? 48));
     if (isUnknown(r)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' });
     if (!r.value) return pass({ data: { found: false, block } });
     const self = await ctx.world.selfPos();

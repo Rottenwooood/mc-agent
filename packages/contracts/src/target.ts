@@ -23,8 +23,8 @@ export type Target =
   | { kind: 'object'; ref: string }
   /** Relative to the player or another handle. */
   | { kind: 'relative'; from?: string; dir: Direction; steps?: number }
-  | { kind: 'block'; block: string; nearest?: boolean; around?: Vec3; within?: number }
-  | { kind: 'entity'; id?: string; type?: string; nearest?: boolean; within?: number }
+  | { kind: 'block'; block: string; nearest?: boolean; around?: Vec3; radius?: number }
+  | { kind: 'entity'; id?: string; type?: string; nearest?: boolean; radius?: number }
   | { kind: 'item'; item: string }
   | { kind: 'container'; pos?: Vec3; entityId?: string }
   /** Secondary escape: explicit coordinate. Not guided. */

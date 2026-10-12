@@ -86,8 +86,8 @@ export interface ActionResult {
   reasonDetail?: string;
   effects: EffectDiff[];
   evidence: Evidence[];
-  /** First version: at most `self_temporal` (research 14 §3). */
-  attribution: Attribution;
+  /** The cause this result is attributed to. Omitted for reads (a read has no effect to attribute). */
+  attribution?: Attribution;
   diff?: NeighborhoodDiff | null;
   resources?: ResourceDelta | null;
   timing?: Timing | null;

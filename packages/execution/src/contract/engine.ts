@@ -150,11 +150,15 @@ export async function executeAction(
       changes.push(`A moved to ${p1.map((v) => v.toFixed(1)).join(',')}`);
     }
     changes.push(...(await nearbyDrops(ctx)));
-    return { ...result, controlOnly: true, ...(changes.length > 0 ? { changes } : {}) };
+    const { attribution: _dropped, ...rest } = result;
+    return { ...rest, controlOnly: true, ...(changes.length > 0 ? { changes } : {}) };
   }
 
-  // Reads change nothing; no signature/causal accounting needed.
-  if (action.contract.effectClass === 'read') return guardedRun(ctx, action, args);
+  // Reads change nothing; no signature/causal accounting needed, and no effect attribution.
+  if (action.contract.effectClass === 'read') {
+    const { attribution: _dropped, ...rest } = await guardedRun(ctx, action, args);
+    return rest;
+  }
 
   await primeChanges(ctx);
   const scope = (action.scope ? await action.scope(ctx, args) : null) ?? (await defaultScope(ctx));

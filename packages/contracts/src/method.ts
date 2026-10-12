@@ -23,7 +23,8 @@ export interface EntityFilter {
   /** Entity type id, e.g. minecraft:cow or modid:my_entity. */
   type?: string;
   hostile?: boolean;
-  within?: number;
+  /** Search radius around the bot. */
+  radius?: number;
 }
 
 export type SetExpr =

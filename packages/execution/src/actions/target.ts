@@ -42,9 +42,9 @@ export const TARGET_SCHEMA = {
   oneOf: [
     { type: 'object', properties: { kind: { const: 'self' } }, required: ['kind'], additionalProperties: false },
     { type: 'object', properties: { kind: { const: 'object' }, handle: { type: 'string', description: 'obj:... handle from view/scan_blocks' }, ref: { type: 'string', description: 'alias of handle' } }, required: ['kind'], additionalProperties: false },
-    { type: 'object', properties: { kind: { const: 'block' }, block: { type: 'string', description: 'e.g. minecraft:stone' }, within: { type: 'integer' }, around: { type: 'array', items: { type: 'integer' } } }, required: ['kind', 'block'], additionalProperties: false },
+    { type: 'object', properties: { kind: { const: 'block' }, block: { type: 'string', description: 'e.g. minecraft:stone' }, radius: { type: 'integer', description: 'search radius (default 48)' }, around: { type: 'array', items: { type: 'integer' } } }, required: ['kind', 'block'], additionalProperties: false },
     { type: 'object', properties: { kind: { const: 'cell' }, pos: { type: 'array', items: { type: 'integer' }, minItems: 3, maxItems: 3 } }, required: ['kind', 'pos'], additionalProperties: false },
-    { type: 'object', properties: { kind: { const: 'entity' }, handle: { type: 'string' }, id: { type: 'string' }, type: { type: 'string' } }, required: ['kind'], additionalProperties: false },
+    { type: 'object', properties: { kind: { const: 'entity' }, handle: { type: 'string' }, id: { type: 'string' }, type: { type: 'string' }, radius: { type: 'integer', description: 'search radius (default 16)' } }, required: ['kind'], additionalProperties: false },
     { type: 'object', properties: { kind: { const: 'relative' }, from: { type: 'string' }, dir: { type: 'string', enum: ['north', 'south', 'east', 'west', 'up', 'down', 'north-east', 'north-west', 'south-east', 'south-west'] }, steps: { type: 'integer' } }, required: ['kind', 'dir'], additionalProperties: false },
   ],
 };
@@ -136,7 +136,7 @@ export async function resolveTarget(ctx: ActionContext, t: Target): Promise<Reso
       return { ok: true, value: { pos: [p[0] + s[0] * n, p[1] + s[1] * n, p[2] + s[2] * n] } };
     }
     case 'block': {
-      const r = await ctx.world.findNearestBlock(t.block, t.within ?? 48, t.around);
+      const r = await ctx.world.findNearestBlock(t.block, t.radius ?? 48, t.around);
       if (isUnknown(r)) return { ok: false, reason: 'not observed', acceptedShapes: TARGET_SHAPES, received: t };
       if (!r.value) return { ok: false, reason: 'not_found', acceptedShapes: TARGET_SHAPES, received: t };
       // Re-validate at use: the "nearest block" sample can be stale/expired — confirm the cell
@@ -151,7 +151,7 @@ export async function resolveTarget(ctx: ActionContext, t: Target): Promise<Reso
     }
     case 'entity': {
       if (t.id) return { ok: true, value: { entityId: t.id } };
-      const r = await ctx.world.entities(t.within ?? 16);
+      const r = await ctx.world.entities(t.radius ?? 16);
       if (isUnknown(r)) return { ok: false, reason: 'not observed' };
       const hit = r.value.find((e) => !t.type || e.type.includes(t.type));
       return hit ? { ok: true, value: { entityId: hit.id } } : { ok: false, reason: 'not_found' };

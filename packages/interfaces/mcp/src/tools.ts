@@ -29,11 +29,11 @@ const RESERVED_TOOL_NAMES = new Set<string>([
 const SET_SCHEMA = {
   type: 'object',
   description:
-    'A set expression (recomputed fresh against the world). Block/cell domains: {op:"members",handle} (all cells of an object — mine a vein/tree), {op:"surface",handle}, {op:"nearest",match} (block/tag), {op:"area",anchor,size,offset?}, {op:"box_cells",box}, {op:"component",seed,match}, {op:"region",box,filter?}, {op:"set_difference",a,b}. Non-block domains (elements are records, project a field with {"from":"s","field":"count"}): {op:"inventory"} -> {slot,item,count}; {op:"container",handle} -> {slot,item,count}; {op:"entities",match:{type,hostile,within}} -> {id,type,pos,hostile,distance}.',
+    'A set expression (recomputed fresh against the world). Block/cell domains: {op:"members",handle} (all cells of an object — mine a vein/tree), {op:"surface",handle}, {op:"nearest",match} (block/tag), {op:"area",anchor,size,offset?}, {op:"box_cells",box}, {op:"component",seed,match}, {op:"region",box,filter?}, {op:"set_difference",a,b}. Non-block domains (elements are records, project a field with {"from":"s","field":"count"}): {op:"inventory"} -> {slot,item,count}; {op:"container",handle} -> {slot,item,count}; {op:"entities",match:{type,hostile,radius}} -> {handle,label,hostile,dir,distance,touchable,sample}.',
   properties: {
     op: { enum: ['members', 'surface', 'nearest', 'area', 'component', 'region', 'box_cells', 'set_difference', 'inventory', 'container', 'entities'] },
     handle: { type: 'string', description: 'obj:... handle (members/surface/container)' },
-    match: { description: 'block: a block id, or {block}|{tag}|{anyOf} (nearest/component). entities: {type,hostile,within}.' },
+    match: { description: 'block: a block id, or {block}|{tag}|{anyOf} (nearest/component). entities: {type,hostile,radius}.' },
     anchor: { description: "obj:... handle or 'self' (area)" },
     size: { type: 'array', items: { type: 'integer' }, description: '[dx,dy,dz] (area)' },
     offset: { type: 'array', items: { type: 'integer' }, description: '[dx,dy,dz] (area)' },
@@ -80,7 +80,7 @@ const RUN_METHOD_DESCRIPTION = [
   '  NON-BLOCK domains (elements are records; project a field with {"from":"s","field":"count"}):',
   '  { "op":"inventory" }                        every inventory slot -> {slot,item,count}',
   '  { "op":"container", "handle":"obj:..." }    every slot of a container -> {slot,item,count}',
-  '  { "op":"entities", "match":{"type":"...","hostile":true,"within":32} }   -> {id,type,pos,hostile,distance}',
+  '  { "op":"entities", "match":{"type":"...","hostile":true,"radius":32} }   -> {handle,label,hostile,dir,distance,touchable,sample}',
   '',
   'postconditions (terminal, authoritative): subject `block@x,y,z` (is/!=), `inv:<item>` (>=/>/is/...), `self.hp|food`, `entity#<id>`, `obj:<handle>` (gone/present/size_ge/size_is).',
   '',

@@ -21,13 +21,15 @@ const chat: AtomicAction = {
 const runCommand: AtomicAction = {
   contract: contract({
     name: 'run_command',
-    description: 'Run a Minecraft command as the bot. The server decides permission.',
+    description:
+      'Run a Minecraft command as the bot (control action — the server decides permission and effect; this tool does not verify the outcome, but any world change still appears in `changes`).',
     params: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'], additionalProperties: false },
     effectClass: 'consumable',
+    controlOnly: true,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const r = await ctx.ctrl.runCommand(String(args.command));
-    return r.accepted ? { ...pass({ attribution: 'self_temporal' }), effectStatus: 'ambiguous', reason: 'attribution_uncertain' } : fail('effect_not_observed', { reasonDetail: r.note });
+    return r.accepted ? pass({ evidence: [{ claim: 'command_sent', source: 'observed' }] }) : fail('effect_not_observed', { reasonDetail: r.note });
   },
 };
 

@@ -11,7 +11,8 @@
 - **附带修掉两个真 bug**：
   - `findNearestBlock` 对任何截断的大半径查询都返回 `unobservable` → `{kind:"block"}` 基本不可用。改为「只查 exposed + 逐级缩小半径」。
   - `set_block.verify` 曾**重新解析** `{kind:"block"}`（挖完最近方块变成另一格）→ 假 `fail`。改为判 **scope anchor**（动作时解析的格），无 anchor → `unobservable`；`defaultScope` 不再伪造 self anchor。
-- **仍待办**：P3-3（观测 mod `/capabilities`，删 `INTERACTABLE`/`isFluid`）、P3-4（原子/域插件注册 + `ControlPort` 能力协商）、§7 并行采纳项（环境 fixture / scenario runner / 读类信封规范 / scan_blocks 字段过滤 / 命名收敛）。
+- **B. 工具层卫生已完成**：读类 `attribution` 省略；`run_command` → control-only；`scan_blocks` 瘦身 + 实体默认关闭；参数名收敛（`within`→`radius`）。
+- **仍待办**：P3-3（观测 mod `/capabilities`，删 `INTERACTABLE`/`isFluid`）、P3-4（原子/域插件注册 + `ControlPort` 能力协商）、**A. eval/ops 层**（环境 fixture 需先设计重置世界的运维路径；scenario runner = trace 排版 + 回归对比）。
 
 ---
 
@@ -146,13 +147,20 @@
 4. **P3-4 插件注册 + `ControlPort` 能力协商**：原子/域可插拔；后端声明支持。**mod 兼容第二刀。**
 5. **P3-5 `run_method validate` 模式**：不执行、只校验 steps 语法 / set / arg / 终态断言可否求值。**对接自动评测。**
 
-**并行采纳（低风险、独立）**：
-- **环境 fixture**（对方 #1）：`reset` 场景到已知起点（`inventory=empty`、`pos`、`seed`），解决「任务前提 vs 实际状态」。
-- **scenario runner**：给定 `steps + postconditions` 自动跑并输出每步 pass/fail + 证据。
+### 7.x 分层：eval/ops 层 vs agent 工具层
+
+反馈里「环境 fixture / scenario runner」这两个**不属于 MCP 工具层**——它们是**跑测试的人/CI** 用的，不该暴露给模型。
+
+**A. eval/ops 层（在 MCP 工具之外，`tools/` + 服务器侧）**
+- **环境 fixture**：把场景拉到已知起点（`inventory=empty`、`pos`、`time`、seed）。**不是** `reset` 工具——**目前根本没有重置世界的能力**，需要新设计一条运维路径（服务器侧 / OP 控制台），agent 调用不到。
+- **scenario runner**：一个**评测跑手**——喂 `steps + postconditions` 的 JSON，自动跑并打印 `run_method` 的 `data.trace`（每步 pass/fail/证据）+ 终态断言结果。本质上就是「把 P3-2 的 trace 排版成报告」，**不是新机制**；用于跨改动的回归对比。
 - **记录 `world_seed`/server 版本/bot 名**，失败可复现。
-- **读类信封规范**：`get_inventory` 等 read 的 `attribution` 省略（不写 `unknown`）；修 `run_command`（按 diff 判或标 control-only）。
-- 卫生：`scan_blocks` 加 `include/fields` 过滤（`entities:false` 默认）、`find_nearest` 描述列真参名、命名收敛 `within`。
-- 更多 starter skills（挖矿脉、合成、洞穴探矿）。
+
+**B. agent 工具层（模型能看到的卫生项）**
+- ✅ **读类信封规范**：read 的 `attribution` **省略**（不再写 `unknown`）；`run_command` 由 `ambiguous+self_temporal+diff.changed:false` 改标 **control-only**。
+- ✅ **`scan_blocks` 瘦身**：去掉重复的 `center_distance`、去掉每对象一次的昂贵 `reachable`（由 `relations` 负责）、实体改为**默认不返回**（`entities:true` 才查，`scan_entities` 专门负责）；实体字段与 `scan_entities` 对齐为 `{handle,label,hostile,dir,distance,touchable,sample}`。
+- ✅ **参数名收敛**：搜索半径统一 `radius`（`find_nearest.within` 与 `Target{kind:block|entity}.within` 已改）、到达距离 `range`（`go_to`）、保持间距 `distance`（`follow/flee`）；`find_nearest` 描述里列出真实参数名。
+- **更多 starter skills**（挖矿脉、合成、洞穴探矿）：**`scenarios/skills.seed.json` 是种子内容**（人手写的 3 条，首次运行时拷到 `.mc-agent/skills.json`），**不是** agent 总结的经历——agent 自己的经验由 `write_skill` 累积。
 
 ### 明确不做
 - 任意代码步骤、无界递归、并发、为每个 mod 分叉核心。
