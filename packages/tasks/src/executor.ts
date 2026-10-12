@@ -35,6 +35,8 @@ export interface StepTrace {
   action: string;
   effectStatus: ActionResult['effectStatus'];
   reason?: ActionResult['reason'];
+  /** The step's reasonDetail (truncated), so the run's summary can name the real cause. */
+  detail?: string;
   ms: number;
 }
 
@@ -134,6 +136,7 @@ async function runAction(step: ActionStep, env: RunEnv): Promise<void> {
     action: step.action,
     effectStatus: result.effectStatus,
     ...(result.reason ? { reason: result.reason } : {}),
+    ...(result.reasonDetail ? { detail: result.reasonDetail.slice(0, 120) } : {}),
     ms: Date.now() - t0,
   });
   if (step.save) env.vars[step.save] = result.data ?? result;
@@ -187,24 +190,11 @@ export async function runMethod(
   // Enforce `pass ⇒ changed` for the WHOLE run: a terminal "true" only counts as pass when at
   // least one sub-result actually changed the world; otherwise the run was a no-op.
   let effectStatus: ActionResult['effectStatus'] = triToEffect(tri);
-  let reason: ActionResult['reason'] = timedOut ? 'timeout' : tri === true ? null : tri === false ? 'effect_not_observed' : 'insufficient_evidence';
+  const reason: ActionResult['reason'] = timedOut ? 'timeout' : tri === true ? null : tri === false ? 'effect_not_observed' : 'insufficient_evidence';
   let reasonDetail: string | undefined;
   if (effectStatus === 'pass' && !runChanged(env)) {
     effectStatus = 'no_op';
-    reason = null;
     reasonDetail = 'already satisfied (no change)';
-  }
-
-  // Surface the first non-pass sub-result's reason so the top level is self-explaining
-  // (e.g. "unknown action X" instead of a bare insufficient_evidence).
-  if (effectStatus !== 'pass' && effectStatus !== 'no_op') {
-    const bad = env.results.find(
-      (r) => r.effectStatus === 'fail' || r.effectStatus === 'unobservable' || r.effectStatus === 'ambiguous',
-    );
-    if (bad) {
-      reason = bad.reason ?? reason;
-      if (bad.reasonDetail) reasonDetail = bad.reasonDetail;
-    }
   }
 
   // One clean time-ordered change feed for the whole composed run (no silent side effects).
@@ -213,8 +203,24 @@ export async function runMethod(
   for (const r of env.results) {
     for (const [k, v] of Object.entries(r.diff?.inventoryDelta ?? {})) inv[k] = (inv[k] ?? 0) + v;
   }
-  for (const [item, d] of Object.entries(inv)) if (d !== 0) changes.push(`A ${item} ${d > 0 ? '+' + d : d}`);
   const invDelta = Object.fromEntries(Object.entries(inv).filter(([, d]) => d !== 0));
+
+  // Describe a non-pass run HONESTLY: the run-level reason stays, and the detail names which steps
+  // did not complete AND the net change — so the verdict never contradicts the diff (a partial run
+  // that did change the world says so).
+  if (effectStatus !== 'pass' && effectStatus !== 'no_op') {
+    const bad = env.trace.filter((t) => t.effectStatus === 'fail' || t.effectStatus === 'unobservable' || t.effectStatus === 'ambiguous');
+    const parts: string[] = [];
+    if (bad.length) {
+      const shown = bad.slice(0, 3).map((t) => `${t.action} (${t.detail ?? t.reason ?? t.effectStatus})`);
+      parts.push(`${bad.length}/${env.trace.length} steps did not complete: ${shown.join(', ')}${bad.length > 3 ? ', …' : ''}`);
+    }
+    const net = [...changes, ...Object.entries(invDelta).map(([k, d]) => `${k} ${d > 0 ? '+' + d : d}`)];
+    if (net.length) parts.push(`net change: ${net.slice(0, 6).join(', ')}${net.length > 6 ? ` (+${net.length - 6} more)` : ''}`);
+    if (parts.length) reasonDetail = parts.join(' | ');
+  }
+
+  for (const [item, d] of Object.entries(invDelta)) changes.push(`A ${item} ${d > 0 ? '+' + d : d}`);
 
   return mk({
     effectStatus,

@@ -129,3 +129,26 @@ describe('run_method static validation (no execution)', () => {
     expect(v.valid).toBe(true);
   });
 });
+
+describe('run_method verdict never contradicts the diff', () => {
+  it('keeps the run-level reason and names the unfinished steps + net change', async () => {
+    const grewInv = mk({ effectStatus: 'pass', diff: { changed: true, inventoryDelta: { 'minecraft:spruce_log': 5 } } });
+    const blocked = mk({ effectStatus: 'unobservable', reason: 'precondition_failed', reasonDetail: 'navigation failed: goto timeout' });
+    const actions = new Map([['chop', fake('chop', grewInv)], ['walk', fake('walk', blocked)]]);
+    const r = await runMethod(fakeCtx(), actions, { steps: [{ action: 'chop' }, { action: 'walk' }] });
+    expect(r.effectStatus).toBe('unobservable'); // no hard effect failure -> unobservable, not fail
+    expect(r.reason).toBe('insufficient_evidence'); // the RUN's reason, not the sub-step's
+    expect(r.reasonDetail).toContain('1/2 steps did not complete');
+    expect(r.reasonDetail).toContain('navigation failed');
+    expect(r.reasonDetail).toContain('net change');
+    expect(r.reasonDetail).toContain('minecraft:spruce_log +5');
+  });
+
+  it('a hard step failure still makes the run fail', async () => {
+    const actions = new Map([['x', fake('x', mk({ effectStatus: 'fail', reason: 'effect_not_observed', reasonDetail: 'dig timeout' }))]]);
+    const r = await runMethod(fakeCtx(), actions, { steps: [{ action: 'x' }] });
+    expect(r.effectStatus).toBe('fail');
+    expect(r.reason).toBe('effect_not_observed');
+    expect(r.reasonDetail).toContain('dig timeout');
+  });
+});

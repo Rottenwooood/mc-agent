@@ -549,6 +549,28 @@ export class MineflayerControlPort implements ControlPort {
     }
   }
 
+  /** Close a crafting window left open by an interrupted craft (mineflayer sends the cursor items
+   *  back on close) — otherwise the next craft operates on a corrupted window and eats items. */
+  private async closeStuckWindow(bot: any): Promise<void> {
+    try {
+      const w = bot.currentWindow;
+      if (w) await bot.closeWindow(w);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Wait until the crafted result count has moved past `before` (results can land a beat later). */
+  private async waitForCraftResult(bot: any, id: number, meta: number | null, before: number, ms: number): Promise<number> {
+    const end = Date.now() + ms;
+    let n = bot.inventory.count(id, meta);
+    while (n <= before && Date.now() < end) {
+      await sleep(100);
+      n = bot.inventory.count(id, meta);
+    }
+    return n;
+  }
+
   async craft(item: string, count: number, tablePos?: Vec3): Promise<ControlReceipt> {
     const bot = this.b();
     const id = this.itemId(item);
@@ -559,20 +581,43 @@ export class MineflayerControlPort implements ControlPort {
       const tid = bot.registry.blocksByName.crafting_table?.id;
       if (tid != null) table = bot.findBlock({ matching: tid, maxDistance: 6 });
     }
-    try {
-      const recipes = bot.recipesFor(id, null, count, table);
-      if (!recipes.length) return no('no recipe / missing ingredients');
-      const recipe = recipes[0];
-      // mineflayer's `craft(recipe, count)` runs the recipe `count` TIMES, while `count` here is
-      // the desired RESULT amount — divide by the recipe yield. Passing the result amount as the
-      // iteration count runs out of ingredients mid-loop and mineflayer drops the leftover grid
-      // items (the "crafted things ended up on the ground" bug).
-      const times = Math.max(1, Math.ceil(count / (recipe.result?.count ?? 1)));
-      await race(bot.craft(recipe, times, table), 'craft', 30000);
-      return ok('observed', 'crafted');
-    } catch (e) {
-      return no(String((e as Error)?.message ?? e));
+    const recipes = bot.recipesFor(id, null, count, table);
+    if (!recipes.length) return no('no recipe / missing ingredients');
+    const recipe = recipes[0];
+    const resultId: number = recipe.result.id;
+    const resultMeta: number | null = recipe.result.metadata ?? null;
+    const yieldN: number = recipe.result.count ?? 1;
+    // `count` is the desired RESULT amount; mineflayer's `craft(recipe, n)` runs the recipe n times.
+    const times = Math.max(1, Math.ceil(count / yieldN));
+
+    // Craft ONE iteration at a time and wait for each result to LAND: mineflayer's multi-iteration
+    // `craft(recipe, n)` resolves before the later results are confirmed, so the next call's window
+    // clicks race the in-flight iteration and items are lost/dropped.
+    await this.closeStuckWindow(bot);
+    const have0 = bot.inventory.count(resultId, resultMeta);
+    let made = 0;
+    for (let i = 0; i < times; i++) {
+      const before = bot.inventory.count(resultId, resultMeta);
+      try {
+        await race(bot.craft(recipe, 1, table), 'craft', 15000);
+      } catch (e) {
+        await this.closeStuckWindow(bot);
+        const msg = String((e as Error)?.message ?? e);
+        return made > 0 ? ok('observed', `crafted ${made} of ${times * yieldN} (stopped: ${msg})`) : no(`craft failed: ${msg}`);
+      }
+      const after = await this.waitForCraftResult(bot, resultId, resultMeta, before, 3000);
+      made += after - before;
+      if (after <= before) break; // this iteration produced nothing → stop instead of eating more
+      // Let the SERVER settle before the next craftOnce. Called back-to-back, mineflayer's
+      // craftOnce races the server (the next iteration's window clicks land before the previous
+      // craft's ingredient/result update), and items are silently lost or tossed. Verified: with
+      // the gap, `craft 12 planks` = exactly 12 from 3 logs; without it, only 4 landed and the
+      // next craft corrupted the crafting window.
+      if (i + 1 < times) await sleep(800);
     }
+    await this.closeStuckWindow(bot);
+    if (made <= 0) return no(`craft produced no output (${item})`);
+    return ok('observed', made >= times * yieldN ? `crafted ${made}` : `crafted ${made} of ${times * yieldN}`);
   }
 
   async smelt(item: string, count: number, opts: { fuel?: string; pos?: Vec3 } = {}): Promise<ControlReceipt> {

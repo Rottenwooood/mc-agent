@@ -44,23 +44,35 @@ const closeContainer: AtomicAction = {
 const craft: AtomicAction = {
   contract: contract({
     name: 'craft',
-    description: 'Craft `count` of an item (auto-uses a nearby/block crafting table). Verified on the authoritative inventory.',
+    description:
+      'Craft `count` of an item (auto-uses a nearby/block crafting table). `count` is the desired RESULT amount; verified on the authoritative inventory (a partial craft is reported, never a pass).',
     params: { type: 'object', properties: { item: { type: 'string' }, count: { type: 'integer', default: 1 }, table: { type: 'object' } }, required: ['item'], additionalProperties: false },
     verificationMode: 'state_effect',
     effectClass: 'consumable',
+    // Multi-iteration crafting must never be abandoned mid-flight: the body budget must exceed the
+    // backend's per-iteration bound (an abandoned craft corrupts the crafting window).
+    timeoutTicks: 1200,
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const item = String(args.item);
+      const want = Math.max(1, Number(args.count ?? 1));
       const before = await invCountOrNull(ctx.world, item);
       if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const tableRt = args.table ? await resolveTarget(ctx, args.table as never) : null;
       const tablePos = tableRt && tableRt.ok ? tableRt.value.pos : undefined;
-      const r = await ctx.ctrl.craft(item, Number(args.count ?? 1), tablePos);
+      const r = await ctx.ctrl.craft(item, want, tablePos);
       const after = await invCountOrNull(ctx.world, item);
       if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
-      if (r.accepted && after > before) return pass({ resources: { inventoryDelta: { [item]: after - before } }, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
-      return fail('effect_not_observed', { reasonDetail: r.note, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }] });
+      const got = after - before;
+      const evidence = [{ claim: 'inv_count', source: 'authoritative' as const, before, after }];
+      const res = { resources: { inventoryDelta: { [item]: got } }, evidence, attribution: 'self_temporal' as const };
+      if (r.accepted && got >= want) return pass(res);
+      if (got > 0) {
+        // Inputs were consumed but the full amount did not land: NOT a pass.
+        return { ...pass(res), effectStatus: 'ambiguous', reason: 'effect_not_observed', reasonDetail: `crafted ${got}/${want}${r.note ? ` (${r.note})` : ''}` };
+      }
+      return fail('effect_not_observed', { reasonDetail: r.note ?? 'no output landed', evidence });
     });
   },
 };
