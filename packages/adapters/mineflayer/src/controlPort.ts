@@ -638,29 +638,37 @@ export class MineflayerControlPort implements ControlPort {
         await sleep(500);
         if (win.outputItem()) break;
       }
+      const out = win.outputItem();
+      if (!out) return no('no smelted output appeared (missing fuel, or the item is not smeltable)');
       await win.takeOutput();
-      return ok('observed', 'smelted');
+      return ok('observed', `smelted ${out.count ?? 1} x ${out.name}`, { item: out.name, count: out.count ?? 1 });
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
     } finally {
       try { if (win) await win.close(); } catch { /* ignore */ }
     }
   }
-
   async enchant(item: string, choice: number, pos?: Vec3): Promise<ControlReceipt> {
     const bot = this.b();
     const id = this.itemId(item);
     if (id == null) return no('unknown item ' + item);
     const block = pos ? bot.blockAt(V(pos)) : bot.findBlock({ matching: bot.registry.blocksByName.enchanting_table?.id, maxDistance: 8 });
     if (!block) return no('no enchanting table');
+    // mineflayer's putTargetItem/putLapis take an ITEM (with a slot), not an id.
+    const target = bot.inventory.items().find((i: any) => i.type === id);
+    if (!target) return no(`${item} is not in the inventory`);
+    const lapisId = bot.registry.itemsByName.lapis_lazuli?.id;
+    const lapis = lapisId != null ? bot.inventory.items().find((i: any) => i.type === lapisId) : undefined;
     let win: any;
     try {
       win = await bot.openEnchantmentTable(block);
-      await race(win.putTargetItem(id), 'enchant_put');
-      await race(win.enchant(choice), 'enchant');
+      await race(win.putTargetItem(target), 'enchant_put');
+      if (lapis) await race(win.putLapis(lapis), 'enchant_lapis');
+      const newItem: any = await race<any>(win.enchant(choice), 'enchant');
       await sleep(500);
       await race(win.takeTargetItem(), 'enchant_take');
-      return ok('observed', 'enchanted');
+      const ench: string[] = (newItem?.enchants ?? []).map((e: { name: string; lvl: number }) => `${e.name}${e.lvl > 1 ? ' ' + e.lvl : ''}`);
+      return ok('observed', `enchanted ${newItem?.name ?? item}${ench.length ? ` (${ench.join(', ')})` : ''}`, { item: newItem?.name ?? item, enchants: ench });
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
     } finally {
@@ -678,8 +686,8 @@ export class MineflayerControlPort implements ControlPort {
     let win: any;
     try {
       win = await bot.openAnvil(block);
-      await race(win.combine(a, b, name), 'anvil');
-      return ok('observed', 'combined');
+      const combined: any = await race<any>(win.combine(a, b, name), 'anvil');
+      return ok('observed', `combined ${combined?.name ?? item1}`, { item: combined?.name ?? item1 });
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
     } finally {
@@ -691,12 +699,15 @@ export class MineflayerControlPort implements ControlPort {
     const bot = this.b();
     const e = bot.entities[Number(entityId)];
     if (!e) return no('entity not found');
+    let villager: any = null;
     try {
-      const villager = await bot.openVillager(e);
+      villager = await bot.openVillager(e);
       await race(bot.trade(villager, index, times), 'trade', 30000);
       return ok('observed', 'traded');
     } catch (err) {
       return no(String((err as Error)?.message ?? err));
+    } finally {
+      try { if (villager) await villager.close(); } catch { /* ignore */ }
     }
   }
 

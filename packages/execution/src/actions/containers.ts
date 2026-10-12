@@ -4,7 +4,7 @@ import type { ActionResult } from '@mc-agent/contracts';
 import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
-import { invCountOrNull } from './helpers.js';
+import { invCountOrNull, invSnapshot, snapshotDelta } from './helpers.js';
 import { resolveTarget, resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const openContainer: AtomicAction = {
@@ -80,23 +80,48 @@ const craft: AtomicAction = {
 const smelt: AtomicAction = {
   contract: contract({
     name: 'smelt',
-    description: 'Smelt `count` of an item in a furnace (nearest or given), optionally with fuel. Verified on the authoritative inventory.',
-    params: { type: 'object', properties: { item: { type: 'string' }, count: { type: 'integer', default: 1 }, fuel: { type: 'string' }, furnace: { type: 'object' } }, required: ['item'], additionalProperties: false },
+    description:
+      'Smelt `count` of `item` in a furnace (nearest or given), optionally with `fuel`. `item` is the INPUT (e.g. minecraft:raw_iron, minecraft:sand); the OUTPUT is verified on the authoritative inventory (a positive inventory delta). Needs a furnace and fuel.',
+    params: {
+      type: 'object',
+      properties: {
+        item: { type: 'string', description: 'the INPUT to smelt, e.g. minecraft:raw_iron (NOT the output)' },
+        count: { type: 'integer', default: 1 },
+        fuel: { type: 'string', description: 'e.g. minecraft:coal (omit to use fuel already in the furnace)' },
+        furnace: { type: 'object', description: 'target for the furnace (default: the nearest furnace)' },
+      },
+      required: ['item'],
+      additionalProperties: false,
+    },
     verificationMode: 'state_effect',
     effectClass: 'consumable',
+    // Never abandon a live furnace window: the backend polls the output for up to ~30s.
+    timeoutTicks: 900,
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
-      const item = String(args.item);
-      const before = await invCountOrNull(ctx.world, item);
-      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
+      const s0 = await invSnapshot(ctx.world);
+      if (!s0) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const fRt = args.furnace ? await resolveTarget(ctx, args.furnace as never) : null;
       const pos = fRt && fRt.ok ? fRt.value.pos : undefined;
-      const r = await ctx.ctrl.smelt(item, Number(args.count ?? 1), { ...(args.fuel != null ? { fuel: String(args.fuel) } : {}), ...(pos ? { pos } : {}) });
-      const after = await invCountOrNull(ctx.world, item);
-      if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
-      if (r.accepted && after > before) return pass({ resources: { inventoryDelta: { [item]: after - before } }, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
-      return fail('effect_not_observed', { reasonDetail: r.note });
+      const r = await ctx.ctrl.smelt(String(args.item), Number(args.count ?? 1), {
+        ...(args.fuel != null ? { fuel: String(args.fuel) } : {}),
+        ...(pos ? { pos } : {}),
+      });
+      const s1 = await invSnapshot(ctx.world);
+      if (!s1) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
+      const delta = snapshotDelta(s0, s1);
+      // `item` is the INPUT; the OUTPUT is whatever increased in the inventory.
+      const produced = Object.entries(delta).filter(([, d]) => d > 0);
+      if (r.accepted && produced.length > 0) {
+        return pass({
+          resources: { inventoryDelta: delta },
+          evidence: [{ claim: 'inv_delta', source: 'authoritative', value: Object.fromEntries(produced) }],
+          data: { produced: Object.fromEntries(produced), consumed: Object.fromEntries(Object.entries(delta).filter(([, d]) => d < 0)) },
+          attribution: 'self_temporal',
+        });
+      }
+      return fail('effect_not_observed', { reasonDetail: r.note ?? 'no output appeared in the inventory', resources: { inventoryDelta: delta } });
     });
   },
 };
@@ -104,16 +129,22 @@ const smelt: AtomicAction = {
 const enchant: AtomicAction = {
   contract: contract({
     name: 'enchant',
-    description: 'Enchant an item at an enchantment table (nearest or given).',
+    description:
+      'Enchant an item at an enchantment table (nearest or given). Control action: an enchantment is NBT the world port cannot observe, so NO effect is claimed; the client-observed result is returned in `data`.',
     params: { type: 'object', properties: { item: { type: 'string' }, choice: { type: 'integer', default: 0 }, table: { type: 'object' } }, required: ['item'], additionalProperties: false },
     effectClass: 'consumable',
+    controlOnly: true,
+    timeoutTicks: 400,
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const eRt = args.table ? await resolveTarget(ctx, args.table as never) : null;
       const pos = eRt && eRt.ok ? eRt.value.pos : undefined;
       const r = await ctx.ctrl.enchant(String(args.item), Number(args.choice ?? 0), pos);
-      return r.accepted ? { ...pass({ attribution: 'self_temporal' }), effectStatus: 'ambiguous', reason: 'attribution_uncertain' } : fail('effect_not_observed', { reasonDetail: r.note });
+      const observed = (r.raw as Record<string, unknown> | undefined) ?? null;
+      return r.accepted
+        ? pass({ evidence: [{ claim: 'enchant_client_observed', source: 'observed', value: observed }], ...(observed ? { data: observed } : {}) })
+        : fail('effect_not_observed', { reasonDetail: r.note });
     });
   },
 };
@@ -121,14 +152,20 @@ const enchant: AtomicAction = {
 const anvilCombine: AtomicAction = {
   contract: contract({
     name: 'anvil_combine',
-    description: 'Combine two items on the nearest anvil, optionally renaming.',
+    description:
+      'Combine two items on the nearest anvil, optionally renaming. Control action: the repaired/renamed result is NBT the world port cannot observe, so NO effect is claimed; the client-observed result is returned in `data`.',
     params: { type: 'object', properties: { item1: { type: 'string' }, item2: { type: 'string' }, name: { type: 'string' } }, required: ['item1', 'item2'], additionalProperties: false },
     effectClass: 'consumable',
+    controlOnly: true,
+    timeoutTicks: 400,
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const r = await ctx.ctrl.anvilCombine(String(args.item1), String(args.item2), args.name != null ? String(args.name) : undefined);
-      return r.accepted ? { ...pass({ attribution: 'self_temporal' }), effectStatus: 'ambiguous', reason: 'attribution_uncertain' } : fail('effect_not_observed', { reasonDetail: r.note });
+      const observed = (r.raw as Record<string, unknown> | undefined) ?? null;
+      return r.accepted
+        ? pass({ evidence: [{ claim: 'anvil_client_observed', source: 'observed', value: observed }], ...(observed ? { data: observed } : {}) })
+        : fail('effect_not_observed', { reasonDetail: r.note });
     });
   },
 };
@@ -140,18 +177,23 @@ const trade: AtomicAction = {
     params: { type: 'object', properties: { target: TARGET_SCHEMA, index: { type: 'integer', default: 0 }, times: { type: 'integer', default: 1 } }, required: ['target'], additionalProperties: false },
     verificationMode: 'state_effect',
     effectClass: 'consumable',
+    timeoutTicks: 900,
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const rt = await resolveTargetOrFail(ctx, args.target as never);
       if (!rt.ok) return rt.result;
       if (!rt.value.entityId) return fail('precondition_failed', { reasonDetail: 'target has no entity' });
-      const inv0 = await ctx.world.inventory();
+      const s0 = await invSnapshot(ctx.world);
+      if (!s0) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const r = await ctx.ctrl.trade(rt.value.entityId, Number(args.index ?? 0), Number(args.times ?? 1));
-      const inv1 = await ctx.world.inventory();
-      const changed = !('unknown' in inv0) && !('unknown' in inv1) && JSON.stringify(inv0.value) !== JSON.stringify(inv1.value);
-      if (r.accepted && changed) return pass({ evidence: [{ claim: 'inv_delta', source: 'authoritative' }], attribution: 'self_temporal' });
-      return fail('effect_not_observed', { reasonDetail: r.note });
+      const s1 = await invSnapshot(ctx.world);
+      if (!s1) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
+      const delta = snapshotDelta(s0, s1);
+      if (r.accepted && Object.keys(delta).length > 0) {
+        return pass({ resources: { inventoryDelta: delta }, evidence: [{ claim: 'inv_delta', source: 'authoritative', value: delta }], attribution: 'self_temporal' });
+      }
+      return fail('effect_not_observed', { reasonDetail: r.note ?? 'no inventory change', resources: { inventoryDelta: delta } });
     });
   },
 };
