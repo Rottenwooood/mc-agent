@@ -1,7 +1,7 @@
 // Meta atomic actions (chat / commands).
 
 import type { ActionResult } from '@mc-agent/contracts';
-import { pass, fail } from '../result.js';
+import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
 
@@ -33,4 +33,55 @@ const runCommand: AtomicAction = {
   },
 };
 
-export const metaActions: AtomicAction[] = [chat, runCommand];
+// ---- body lifecycle (join / leave the server) ----
+
+const joinServer: AtomicAction = {
+  contract: contract({
+    name: 'join_server',
+    description:
+      'Join (or rejoin) the game server as the body — use after a disconnect, a kick or a server restart (the body does not auto-reconnect). Control action: it does not claim a world effect. (No-op if already connected; unsupported on a backend that does not control join/leave.)',
+    params: { type: 'object', properties: {}, additionalProperties: false },
+    effectClass: 'idempotent',
+    controlOnly: true,
+  }),
+  async run(ctx): Promise<ActionResult> {
+    const st = await ctx.ctrl.bodyState();
+    if (!st.controllable) {
+      return fail('precondition_failed', { reasonDetail: 'this control backend does not control join/leave (a real client is joined by the human)' });
+    }
+    if (st.connected) return mk({ effectStatus: 'no_op', reason: null, reasonDetail: 'already connected' });
+    try {
+      await ctx.ctrl.connect();
+      const after = await ctx.ctrl.bodyState();
+      return pass({ evidence: [{ claim: 'body_connected', source: 'observed', value: after }], data: after });
+    } catch (e) {
+      return fail('effect_not_observed', { reasonDetail: `join failed: ${String((e as Error)?.message ?? e)}` });
+    }
+  },
+};
+
+const leaveServer: AtomicAction = {
+  contract: contract({
+    name: 'leave_server',
+    description:
+      'Leave the game server (disconnect the body). Control action: it does not claim a world effect. (No-op if not connected; unsupported on a backend that does not control join/leave.)',
+    params: { type: 'object', properties: {}, additionalProperties: false },
+    effectClass: 'idempotent',
+    controlOnly: true,
+  }),
+  async run(ctx): Promise<ActionResult> {
+    const st = await ctx.ctrl.bodyState();
+    if (!st.controllable) {
+      return fail('precondition_failed', { reasonDetail: 'this control backend does not control join/leave (a real client is joined/left by the human)' });
+    }
+    if (!st.connected) return mk({ effectStatus: 'no_op', reason: null, reasonDetail: 'not connected' });
+    try {
+      await ctx.ctrl.disconnect();
+      return pass({ evidence: [{ claim: 'body_disconnected', source: 'observed' }] });
+    } catch (e) {
+      return fail('effect_not_observed', { reasonDetail: `leave failed: ${String((e as Error)?.message ?? e)}` });
+    }
+  },
+};
+
+export const metaActions: AtomicAction[] = [chat, runCommand, joinServer, leaveServer];

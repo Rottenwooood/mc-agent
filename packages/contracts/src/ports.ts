@@ -101,9 +101,21 @@ export interface AttackOptions {
   durationMs?: number;
 }
 
+/** Body lifecycle state (no judgement): whether the body is in a world, whether this backend can
+ *  join/leave it under program control, and where it is pointed. */
+export interface BodyState {
+  connected: boolean;
+  /** A protocol bot can join/leave; the local player of a real client cannot (the human does). */
+  controllable: boolean;
+  server?: string;
+  username?: string;
+}
+
 export interface ControlPort {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
+  /** Body lifecycle state + join/leave capability (cheap probe). */
+  bodyState(): Promise<BodyState>;
 
   // movement
   goto(pos: Vec3, opts?: MoveOptions): Promise<ControlReceipt>;

@@ -6,6 +6,7 @@
 
 import type {
   AttackOptions,
+  BodyState,
   ControlPort,
   ControlReceipt,
   ItemStack,
@@ -68,6 +69,18 @@ export class ClientModControlPort implements ControlPort {
 
   async disconnect(): Promise<void> {
     // Never kick the real client; nothing to do.
+  }
+
+  async bodyState(): Promise<BodyState> {
+    // A real client is joined/left by the human, not by us: report state, but never controllable.
+    let connected = false;
+    try {
+      connected = (await this.health()).in_world === true;
+    } catch {
+      connected = false;
+    }
+    const username = process.env.MC_USER;
+    return { connected, controllable: false, server: 'client-mod', ...(username ? { username } : {}) };
   }
 
   // ---- movement ----

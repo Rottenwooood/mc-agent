@@ -7,7 +7,7 @@ import mineflayer from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import mcDataFactory from 'minecraft-data';
 import vec3 from 'vec3';
-import type { AttackOptions, ControlPort, ControlReceipt, ItemStack, MoveOptions, Vec3 } from '@mc-agent/contracts';
+import type { AttackOptions, BodyState, ControlPort, ControlReceipt, ItemStack, MoveOptions, Vec3 } from '@mc-agent/contracts';
 import { PortError } from '@mc-agent/foundation';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -46,6 +46,15 @@ export class MineflayerControlPort implements ControlPort {
 
   get ready(): boolean {
     return this.bot !== null && this.bot.entity != null;
+  }
+
+  async bodyState(): Promise<BodyState> {
+    return {
+      connected: this.ready,
+      controllable: true,
+      server: `${this.opts.host ?? process.env.MC_HOST ?? '127.0.0.1'}:${this.opts.port ?? Number(process.env.MC_PORT ?? 25565)}`,
+      username: this.opts.username ?? process.env.MC_USER ?? 'Bot',
+    };
   }
 
   async connect(): Promise<void> {
