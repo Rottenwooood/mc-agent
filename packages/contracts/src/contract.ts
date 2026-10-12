@@ -42,6 +42,12 @@ export interface ActionContract {
   postconditions: Predicate[];
   invariants: Predicate[];
   effectClass: EffectClass;
+  /**
+   * Control-only action: affects the body/interface (look_at, wait, steer, follow, flee, chat,
+   * open/close_container) but claims NO world effect. Its `pass`/`fail` judges the CONTROL, not
+   * the world — the engine never runs the effect/`pass ⇒ changed` accounting for it.
+   */
+  controlOnly?: boolean;
   interruptible: Interruptible;
   safeStop: SafeStop;
   timeoutTicks: number;

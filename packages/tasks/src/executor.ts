@@ -11,7 +11,7 @@ import type {
   Tri,
 } from '@mc-agent/contracts';
 import { and, triToEffect } from '@mc-agent/contracts';
-import { executeAction, mk, type ActionContext, type AtomicAction } from '@mc-agent/execution';
+import { changesCursor, changesSince, executeAction, mk, primeChanges, type ActionContext, type AtomicAction } from '@mc-agent/execution';
 import { evalExpr, resolveArg, type Vars } from './args.js';
 import { evalSet } from './sets.js';
 import { evalPredicate } from './predicate.js';
@@ -115,6 +115,8 @@ export async function runMethod(
 ): Promise<ActionResult> {
   const start = Date.now();
   const budgetMs = opts.budgetMs ?? 90000;
+  await primeChanges(ctx);
+  const cursor0 = changesCursor();
   const env: RunEnv = {
     ctx,
     vars: { ...(opts.args ?? {}) },
@@ -134,14 +136,55 @@ export async function runMethod(
       env.results.flatMap((r) => ((r.data as { blocksBroken?: string[] } | undefined)?.blocksBroken) ?? []),
     ),
   ];
+
+  // Enforce `pass ⇒ changed` for the WHOLE run: a terminal "true" only counts as pass when at
+  // least one sub-result actually changed the world; otherwise the run was a no-op.
+  let effectStatus: ActionResult['effectStatus'] = triToEffect(tri);
+  let reason: ActionResult['reason'] = timedOut ? 'timeout' : tri === true ? null : tri === false ? 'effect_not_observed' : 'insufficient_evidence';
+  let reasonDetail: string | undefined;
+  if (effectStatus === 'pass' && !runChanged(env)) {
+    effectStatus = 'no_op';
+    reason = null;
+    reasonDetail = 'already satisfied (no change)';
+  }
+
+  // Surface the first non-pass sub-result's reason so the top level is self-explaining
+  // (e.g. "unknown action X" instead of a bare insufficient_evidence).
+  if (effectStatus !== 'pass' && effectStatus !== 'no_op') {
+    const bad = env.results.find(
+      (r) => r.effectStatus === 'fail' || r.effectStatus === 'unobservable' || r.effectStatus === 'ambiguous',
+    );
+    if (bad) {
+      reason = bad.reason ?? reason;
+      if (bad.reasonDetail) reasonDetail = bad.reasonDetail;
+    }
+  }
+
+  // One clean time-ordered change feed for the whole composed run (no silent side effects).
+  const changes = await changesSince(ctx, cursor0);
+  const inv: Record<string, number> = {};
+  for (const r of env.results) {
+    for (const [k, v] of Object.entries(r.diff?.inventoryDelta ?? {})) inv[k] = (inv[k] ?? 0) + v;
+  }
+  for (const [item, d] of Object.entries(inv)) if (d !== 0) changes.push(`A ${item} ${d > 0 ? '+' + d : d}`);
+
   return mk({
-    effectStatus: triToEffect(tri),
+    effectStatus,
     controlStatus: timedOut ? 'interrupted' : 'completed',
-    reason: timedOut ? 'timeout' : tri === true ? null : tri === false ? 'effect_not_observed' : 'insufficient_evidence',
+    reason,
+    ...(reasonDetail ? { reasonDetail } : {}),
     subResults: env.results,
     attribution: 'self_temporal',
+    ...(changes.length ? { changes } : {}),
     data: { steps: env.results.length, budgetLeft: env.budget, elapsedMs: Date.now() - start, timedOut, ...(blocksBroken.length ? { blocksBroken } : {}) },
   });
+}
+
+/** Did anything in the run actually change the world (blocks or inventory)? */
+function runChanged(env: RunEnv): boolean {
+  return env.results.some(
+    (r) => r.diff?.changed === true || Object.values(r.diff?.inventoryDelta ?? {}).some((n) => n !== 0),
+  );
 }
 
 async function terminal(ctx: ActionContext, preds: Predicate[], env: RunEnv): Promise<Tri> {

@@ -94,6 +94,12 @@ export interface ActionResult {
   control: 'returned';
   /** Time-ordered world changes caused since the previous tool call (no silent side effects). */
   changes?: string[];
+  /**
+   * True for a control-only action (look_at/wait/steer/follow/flee/chat/open/close_container):
+   * it affects the body/interface but claims NO world effect. A `pass` here is a CONTROL pass,
+   * never an effect pass — consumers must not treat it as evidence of a world change.
+   */
+  controlOnly?: boolean;
   subResults?: ActionResult[];
   /** Tool-specific payload (e.g. perception data). Not part of the judgement. */
   data?: unknown;

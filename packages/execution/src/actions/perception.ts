@@ -71,10 +71,20 @@ function bboxOf(cells: readonly Vec3[]): { min: Vec3; max: Vec3 } | null {
   return { min, max };
 }
 
-function objectBrief(o: WorldObject): Record<string, unknown> {
+function objectBrief(o: WorldObject, self?: Vec3 | null): Record<string, unknown> {
+  const bbox = bboxOf(o.cells);
+  const fluid = isFluid(o.label);
+  const adjacent = o.edgeDistance <= 1.5;
+  // wouldFlood: a liquid adjacent to the body whose vertical span covers the body's feet/head —
+  // breaching the wall next to it would flood the agent (7090-cell oceans judged by size alone).
+  let wouldFlood = false;
+  if (fluid && adjacent && self && bbox) {
+    const feet = Math.floor(self[1]);
+    wouldFlood = (bbox.min?.[1] ?? 0) <= feet + 1 && (bbox.max?.[1] ?? 0) >= feet;
+  }
   return {
     handle: o.handle,
-    kind: INTERACTABLE.has(o.label) ? 'interactable' : isFluid(o.label) ? 'liquid' : 'block',
+    kind: INTERACTABLE.has(o.label) ? 'interactable' : fluid ? 'liquid' : 'block',
     label: o.label,
     size: o.size,
     dir: o.dir,
@@ -82,10 +92,10 @@ function objectBrief(o: WorldObject): Record<string, unknown> {
     edge_distance: o.edgeDistance,
     touchable: o.touchable,
     sample: o.anchor,
-    bbox: bboxOf(o.cells),
+    bbox,
     // Liquid danger, expressed plainly (a 7080-cell fluid is hard to judge from size alone).
-    ...(isFluid(o.label)
-      ? { liquid: /lava/.test(o.label) ? 'lava' : 'water', dangerous: /lava/.test(o.label), adjacent: o.edgeDistance <= 1.5 }
+    ...(fluid
+      ? { liquid: /lava/.test(o.label) ? 'lava' : 'water', dangerous: /lava/.test(o.label), adjacent, wouldFlood }
       : {}),
   };
 }
@@ -229,7 +239,7 @@ const scanBlocks: AtomicAction = {
         });
 
     const pack = async (o: WorldObject): Promise<Record<string, unknown>> => ({
-      ...objectBrief(o),
+      ...objectBrief(o, self),
       reachable: await reachableFor(ctx, o),
     });
     const brief = async (list: WorldObject[], cap = 16): Promise<Record<string, unknown>[]> => {

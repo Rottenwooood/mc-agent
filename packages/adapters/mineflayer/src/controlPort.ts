@@ -156,7 +156,8 @@ export class MineflayerControlPort implements ControlPort {
         last = cur.clone();
         lastMove = Date.now();
       } else if (allowModify && Date.now() - lastMove > 1200) {
-        await this.digBlockingBody(bot, pos);
+        if (pos[1] < bot.entity.position.y - 1) await this.digStaircase(bot, pos);
+        else await this.digBlockingBody(bot, pos);
         lastMove = Date.now();
       }
     }
@@ -183,6 +184,44 @@ export class MineflayerControlPort implements ControlPort {
         try { await this.dig(at); } catch { /* ignore */ }
       }
     }
+  }
+
+  /**
+   * Staircase down-dig: when the goal is below, descend one step FORWARD + DOWN instead of a
+   * vertical shaft (which can breach aquifers/lava). Never staircase into a fluid; falls back to
+   * a plain body dig (which itself refuses fluid) when no lateral step is safe.
+   */
+  private async digStaircase(bot: any, pos: Vec3): Promise<void> {
+    const p = bot.entity.position;
+    const bx = Math.floor(p.x);
+    const by = Math.floor(p.y);
+    const bz = Math.floor(p.z);
+    const near = Math.abs(pos[0] - p.x) < 2.5 && Math.abs(pos[2] - p.z) < 2.5;
+    let cands: [number, number][];
+    if (near) {
+      cands = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    } else {
+      const dx = pos[0] - p.x;
+      const dz = pos[2] - p.z;
+      const sx = Math.abs(dx) >= Math.abs(dz) ? Math.sign(dx) : 0;
+      const sz = Math.abs(dz) > Math.abs(dx) ? Math.sign(dz) : 0;
+      cands = [[sx, sz]];
+    }
+    for (const [sx, sz] of cands) {
+      if (sx === 0 && sz === 0) continue;
+      const foot = bot.blockAt(V([bx + sx, by - 1, bz + sz]));
+      const head = bot.blockAt(V([bx + sx, by + 1, bz + sz]));
+      if ((foot && /(water|lava)/.test(foot.name)) || (head && /(water|lava)/.test(head.name))) continue;
+      for (const y of [by - 1, by]) {
+        const at: Vec3 = [bx + sx, y, bz + sz];
+        const b = bot.blockAt(V(at));
+        if (b && b.name !== 'air' && b.boundingBox === 'block') {
+          try { await this.dig(at); } catch { /* ignore */ }
+        }
+      }
+      return;
+    }
+    await this.digBlockingBody(bot, pos);
   }
 
   async follow(entityId: string, distance: number, durationMs = 5000): Promise<ControlReceipt> {

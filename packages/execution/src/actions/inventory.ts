@@ -1,10 +1,10 @@
 // Inventory atomic actions. Count-changing actions are verified on the authoritative inventory.
 
 import type { ActionResult } from '@mc-agent/contracts';
-import { pass, fail } from '../result.js';
+import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
-import { invCount } from './helpers.js';
+import { invCountOrNull } from './helpers.js';
 import { resolveTarget, resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const equip: AtomicAction = {
@@ -16,11 +16,14 @@ const equip: AtomicAction = {
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
-      const before = await invCount(ctx.world, String(args.item));
-      const r = await ctx.ctrl.equip(String(args.item), String(args.destination ?? 'hand'));
-      const after = await invCount(ctx.world, String(args.item));
-      if (r.accepted && after === before) return pass({ evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
-      return fail('effect_not_observed', { reasonDetail: r.note });
+      const item = String(args.item);
+      const before = await invCountOrNull(ctx.world, item);
+      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
+      // Equipping moves an item you already hold — that is a precondition, not an inventory change.
+      if (before === 0) return fail('precondition_failed', { reasonDetail: `${item} is not in the inventory` });
+      const r = await ctx.ctrl.equip(item, String(args.destination ?? 'hand'));
+      if (!r.accepted) return fail('effect_not_observed', { reasonDetail: r.note });
+      return pass({ evidence: [{ claim: 'inv_count', source: 'authoritative', before }], attribution: 'self_temporal' });
     });
   },
 };
@@ -50,9 +53,11 @@ const drop: AtomicAction = {
     return ctx.token.run(async () => {
       const item = String(args.item);
       const want = Number(args.count ?? 1);
-      const before = await invCount(ctx.world, item);
+      const before = await invCountOrNull(ctx.world, item);
+      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const r = await ctx.ctrl.drop(item, want);
-      const after = await invCount(ctx.world, item);
+      const after = await invCountOrNull(ctx.world, item);
+      if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const delta = before - after;
       if (r.accepted && delta >= want) return pass({ resources: { inventoryDelta: { [item]: -delta } }, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
       if (delta > 0) return { ...pass({ resources: { inventoryDelta: { [item]: -delta } } }), effectStatus: 'ambiguous', reason: 'effect_not_observed' };
@@ -76,13 +81,15 @@ const transferItem: AtomicAction = {
       if (!rt.ok) return rt.result;
       const pos = rt.value.containerPos;
       if (!pos) return fail('precondition_failed', { reasonDetail: 'target has no container position' });
-      const before = await invCount(ctx.world, item);
+      const before = await invCountOrNull(ctx.world, item);
+      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const r = await ctx.ctrl.transfer(item, Number(args.count ?? 1), {
         from: (String(args.from ?? 'inventory') as 'inventory' | 'container'),
         to: (String(args.to ?? 'container') as 'inventory' | 'container'),
         pos,
       });
-      const after = await invCount(ctx.world, item);
+      const after = await invCountOrNull(ctx.world, item);
+      if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       if (r.accepted && after !== before) return pass({ diff: { changed: true, inventoryDelta: { [item]: after - before } }, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
       return fail('effect_not_observed', { reasonDetail: r.note, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }] });
     });
@@ -100,10 +107,12 @@ const consume: AtomicAction = {
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const item = String(args.item);
-      const before = await invCount(ctx.world, item);
+      const before = await invCountOrNull(ctx.world, item);
+      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const s0 = await ctx.world.status();
       const r = await ctx.ctrl.consume(item);
-      const after = await invCount(ctx.world, item);
+      const after = await invCountOrNull(ctx.world, item);
+      if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const s1 = await ctx.world.status();
       const foodUp = !('unknown' in s0) && !('unknown' in s1) && s1.value.food > s0.value.food;
       if (r.accepted && (after < before || foodUp)) return pass({ resources: { inventoryDelta: { [item]: after - before } }, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
@@ -123,9 +132,11 @@ const useItem: AtomicAction = {
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const item = String(args.item);
-      const before = await invCount(ctx.world, item);
+      const before = await invCountOrNull(ctx.world, item);
+      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const r = await ctx.ctrl.useItem(item, Number(args.release_ms ?? 1000));
-      const after = await invCount(ctx.world, item);
+      const after = await invCountOrNull(ctx.world, item);
+      if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       if (!r.accepted) return fail('effect_not_observed', { reasonDetail: r.note });
       return after < before
         ? pass({ resources: { inventoryDelta: { [item]: after - before } }, attribution: 'self_temporal' })

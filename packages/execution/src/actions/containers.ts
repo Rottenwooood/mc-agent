@@ -10,9 +10,10 @@ import { resolveTarget, resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 const openContainer: AtomicAction = {
   contract: contract({
     name: 'open_container',
-    description: 'Open the container/block at a target and leave its window open.',
+    description: 'Open the container/block at a target and leave its window open (control action).',
     params: { type: 'object', properties: { target: TARGET_SCHEMA }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
@@ -29,9 +30,10 @@ const openContainer: AtomicAction = {
 const closeContainer: AtomicAction = {
   contract: contract({
     name: 'close_container',
-    description: 'Close the currently open container/window.',
+    description: 'Close the currently open container/window (control action).',
     params: { type: 'object', properties: {}, additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
   }),
   async run(ctx): Promise<ActionResult> {
     const r = await ctx.ctrl.closeContainer();

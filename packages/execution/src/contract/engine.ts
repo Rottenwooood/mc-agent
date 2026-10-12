@@ -16,6 +16,22 @@ const SETTLE_MS = 500;
 // Time-ordered world-change feed: one cursor for the resident (a single agent). After each body
 // action we read the events since the previous action, so no side effect is silent.
 let changeCursor: EventCursor | undefined;
+let changeBaselineReady = false;
+
+/**
+ * Establish the change-feed baseline by consuming any pre-existing event backlog. Must run BEFORE
+ * an action so the first feed reports only that action's own changes (never stale history).
+ */
+export async function primeChanges(ctx: ActionContext): Promise<void> {
+  if (changeBaselineReady) return;
+  try {
+    const page = await ctx.world.events(changeCursor, 512);
+    changeCursor = page.cursor;
+  } catch {
+    /* ignore */
+  }
+  changeBaselineReady = true;
+}
 
 function formatEvent(e: WorldEvent): string {
   const who = e.actor ?? '?';
@@ -29,10 +45,27 @@ function formatEvent(e: WorldEvent): string {
 async function collectChanges(ctx: ActionContext): Promise<string[]> {
   try {
     const page = await ctx.world.events(changeCursor, 256);
-    const out: string[] = [];
-    if (!page.resetRequired) for (const e of page.events) out.push(formatEvent(e));
     changeCursor = page.cursor;
-    return out;
+    if (!changeBaselineReady || page.resetRequired) {
+      changeBaselineReady = true;
+      return [];
+    }
+    return page.events.map(formatEvent);
+  } catch {
+    return [];
+  }
+}
+
+/** The current world-change cursor (snapshot it before a composed run). */
+export function changesCursor(): EventCursor | undefined {
+  return changeCursor;
+}
+
+/** Format every world event since `cursor` (used to build a composed run's one clean feed). */
+export async function changesSince(ctx: ActionContext, cursor: EventCursor | undefined, max = 512): Promise<string[]> {
+  try {
+    const page = await ctx.world.events(cursor, max);
+    return page.resetRequired ? [] : page.events.map(formatEvent);
   } catch {
     return [];
   }
@@ -103,9 +136,25 @@ export async function executeAction(
   action: AtomicAction,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
+  // Control-only actions claim NO world effect: never run the effect / `pass ⇒ changed`
+  // accounting, and label the verdict as a control outcome (not a world-effect pass).
+  if (action.contract.controlOnly) {
+    await primeChanges(ctx);
+    const p0 = await ctx.world.selfPos();
+    const result = await guardedRun(ctx, action, args);
+    const p1 = await ctx.world.selfPos();
+    const changes = await collectChanges(ctx);
+    if (p0 && p1 && (p0[0] !== p1[0] || p0[1] !== p1[1] || p0[2] !== p1[2])) {
+      changes.push(`A moved to ${p1.map((v) => v.toFixed(1)).join(',')}`);
+    }
+    changes.push(...(await nearbyDrops(ctx)));
+    return { ...result, controlOnly: true, ...(changes.length > 0 ? { changes } : {}) };
+  }
+
   // Reads change nothing; no signature/causal accounting needed.
   if (action.contract.effectClass === 'read') return guardedRun(ctx, action, args);
 
+  await primeChanges(ctx);
   const scope = (action.scope ? await action.scope(ctx, args) : null) ?? (await defaultScope(ctx));
   const before = await captureSignature(ctx, scope);
   const result = await guardedRun(ctx, action, args);

@@ -85,7 +85,7 @@ describe('facts', () => {
 
 describe('frozen vocabularies', () => {
   it('are frozen and non-empty', () => {
-    expect(EFFECT_STATUSES).toEqual(['pass', 'fail', 'ambiguous', 'unobservable']);
+    expect(EFFECT_STATUSES).toEqual(['pass', 'fail', 'ambiguous', 'unobservable', 'no_op']);
     expect(CONTROL_STATUSES.length).toBe(6);
     expect(REASONS).toContain('policy_blocked');
     expect(ATTRIBUTIONS).toContain('self_temporal');

@@ -6,6 +6,7 @@ const sig = (over: Partial<Signature> = {}): Signature => ({
   inventory: {},
   hp: 20,
   food: 20,
+  pos: null,
   ...over,
 });
 

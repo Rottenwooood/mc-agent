@@ -8,8 +8,9 @@ import { contract } from './types.js';
 const chat: AtomicAction = {
   contract: contract({
     name: 'chat',
-    description: 'Send a chat message (or /command) as the bot. Server permission applies.',
+    description: 'Send a chat message (or /command) as the bot. Server permission applies (control action).',
     params: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'], additionalProperties: false },
+    controlOnly: true,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const r = await ctx.ctrl.chat(String(args.message));

@@ -69,6 +69,7 @@ const lookAt: AtomicAction = {
     description: 'Turn the view toward a target.',
     params: { type: 'object', properties: { target: TARGET_SCHEMA }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const target = args.target as Target;
@@ -85,9 +86,10 @@ const lookAt: AtomicAction = {
 const wait: AtomicAction = {
   contract: contract({
     name: 'wait',
-    description: 'Wait a number of game ticks (20/s).',
+    description: 'Wait a number of game ticks (20/s) — a control action, no world effect.',
     params: { type: 'object', properties: { ticks: { type: 'integer', default: 20 } }, additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const r = await ctx.ctrl.wait(Number(args.ticks ?? 20));
@@ -98,9 +100,10 @@ const wait: AtomicAction = {
 const follow: AtomicAction = {
   contract: contract({
     name: 'follow',
-    description: 'Follow a target entity for a bounded duration, keeping within `distance`.',
+    description: 'Follow a target entity for a bounded duration, keeping within `distance` (control action).',
     params: { type: 'object', properties: { target: TARGET_SCHEMA, distance: { type: 'number', default: 3 }, durationMs: { type: 'integer', default: 5000 } }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
     verificationMode: 'task_terminal',
   }),
   async run(ctx, args): Promise<ActionResult> {
@@ -118,9 +121,10 @@ const follow: AtomicAction = {
 const flee: AtomicAction = {
   contract: contract({
     name: 'flee',
-    description: 'Move away from a target entity to at least `distance` blocks.',
+    description: 'Move away from a target entity to at least `distance` blocks (control action).',
     params: { type: 'object', properties: { target: TARGET_SCHEMA, distance: { type: 'number', default: 12 } }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
     verificationMode: 'task_terminal',
   }),
   async run(ctx, args): Promise<ActionResult> {
@@ -138,9 +142,10 @@ const flee: AtomicAction = {
 const steer: AtomicAction = {
   contract: contract({
     name: 'steer',
-    description: 'Low-level steering escape hatch: hold raw movement controls for a duration.',
+    description: 'Low-level steering escape hatch: hold raw movement controls for a duration (control action).',
     params: { type: 'object', properties: { controls: { type: 'array', items: { type: 'string' } }, durationMs: { type: 'integer', default: 500 } }, required: ['controls'], additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const controls = Array.isArray(args.controls) ? (args.controls as string[]) : [];

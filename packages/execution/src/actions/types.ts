@@ -33,6 +33,7 @@ export function contract(p: Partial<ActionContract> & { name: string; descriptio
     postconditions: [],
     invariants: [],
     effectClass: 'read',
+    controlOnly: false,
     interruptible: { prepare: true, execute: true, settle: true },
     safeStop: 'release_control',
     timeoutTicks: 200,
