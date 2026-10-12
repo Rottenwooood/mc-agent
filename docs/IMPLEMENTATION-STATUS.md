@@ -23,6 +23,7 @@
 - `docs/client-controller-review.md` — **Route B 现状梳理与设计问题**(复盘 + 可选改动方向,待拍板)。
 - `docs/manual-test-mineflayer.md` — **手动测试指南**(起 server / 重置世界 / 起 agent / 测试场景 / OP / 清理)。
 - `docs/running-the-agent.md` — **跑 agent 的三种方式**(自定义 prompt / 一键 benchmark / 交互 session)。
+- `docs/repair-plan.md` — **修复方案**(空真 pass / P0 可发现性 / P1 安全语义 / 自洽原则,待拍板)。
 - `docs/mcp-implementation-framework.md` — 铁律、M0–M6+gate、契约(Fact/Predicate/`ActionResult`/`ActionContract`/`Method`)、L0–L5、**原子动作库(§6.1)**、进程形态、Mod 契约、可视化、累计决策。
 - `docs/world-map-and-composition.md` — 表面壳+表面图、两层地图、通用查询、`set_block` 两状态替换、**有界编排词表**、**§12 感知与寻址(定稿)**、拒绝的反模式。
 - `docs/eval-benchmark.md` — 实机 benchmark(种子隔离、agent 驱动、独立验收器、指标、消融)。
