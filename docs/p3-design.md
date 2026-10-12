@@ -12,7 +12,7 @@
   - `findNearestBlock` 对任何截断的大半径查询都返回 `unobservable` → `{kind:"block"}` 基本不可用。改为「只查 exposed + 逐级缩小半径」。
   - `set_block.verify` 曾**重新解析** `{kind:"block"}`（挖完最近方块变成另一格）→ 假 `fail`。改为判 **scope anchor**（动作时解析的格），无 anchor → `unobservable`；`defaultScope` 不再伪造 self anchor。
 - **B. 工具层卫生已完成**：读类 `attribution` 省略；`run_command` → control-only；`scan_blocks` 瘦身 + 实体默认关闭；参数名收敛（`within`→`radius`）。
-- **仍待办**：P3-3（观测 mod `/capabilities`，删 `INTERACTABLE`/`isFluid`）、P3-4（原子/域插件注册 + `ControlPort` 能力协商）、**A. eval/ops 层**（环境 fixture 需先设计重置世界的运维路径；scenario runner = trace 排版 + 回归对比）。
+- **仍待办**：P3-3（观测 mod `/capabilities`，删 `INTERACTABLE`/`isFluid`）、P3-4（原子/域插件注册 + `ControlPort` 能力协商）、**dev 流程的「准备/恢复场景」**（世界级 reset 已有；缺背包/位置级，供 dev 直连流程复现）。
 
 ---
 
@@ -151,10 +151,11 @@
 
 反馈里「环境 fixture / scenario runner」这两个**不属于 MCP 工具层**——它们是**跑测试的人/CI** 用的，不该暴露给模型。
 
-**A. eval/ops 层（在 MCP 工具之外，`tools/` + 服务器侧）**
-- **环境 fixture**：把场景拉到已知起点（`inventory=empty`、`pos`、`time`、seed）。**不是** `reset` 工具——**目前根本没有重置世界的能力**，需要新设计一条运维路径（服务器侧 / OP 控制台），agent 调用不到。
-- **scenario runner**：一个**评测跑手**——喂 `steps + postconditions` 的 JSON，自动跑并打印 `run_method` 的 `data.trace`（每步 pass/fail/证据）+ 终态断言结果。本质上就是「把 P3-2 的 trace 排版成报告」，**不是新机制**；用于跨改动的回归对比。
-- **记录 `world_seed`/server 版本/bot 名**，失败可复现。
+**A. eval/ops 层（已存在——不要再造）**
+- **`tests/eval/runner.mjs` 就是那个 runner**：对每个「任务 × seed」→ `tools/reset-world.sh <seed>`（世界隔离）→ 起 resident → 应用任务 fixture（`tools/setup-bot.mjs` 放树 / 给木板 / setblock）→ 用**真 LLM 无头驱动**（只给 `goal`）→ **独立 verifier** 直读观测 mod 判分（不采信 agent 自述）→ 写 episode + `metrics/report.mjs`。
+- **`scenarios/` 是它的数据目录**：`tasks/T*.json`（目标 + fixture + verifier）、`actions/*.vN.json`（已定义的二级动作版本）、`seeds.txt`（世界种子）、`blueprints/`、`skills.seed.json`。
+- **`tools/reset-world.sh` 也已经存在**（停服→删世界→设 seed→重启）——世界隔离不是缺口。
+- **真正的缺口**：以上只在 **bench 流程**里有。对方用的是 **dev 直连流程**（手调 MCP 工具），那条流程**没有 fixture**，所以从残留状态开局、结论不可复现。要补的是 **dev 流程的「准备/恢复场景」**（清背包 / 定位 / 时间——目前只有世界级 reset，没有背包/位置级），而不是重造 runner。
 
 **B. agent 工具层（模型能看到的卫生项）**
 - ✅ **读类信封规范**：read 的 `attribution` **省略**（不再写 `unknown`）；`run_command` 由 `ambiguous+self_temporal+diff.changed:false` 改标 **control-only**。
