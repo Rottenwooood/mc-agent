@@ -95,8 +95,8 @@ const smelt: AtomicAction = {
     },
     verificationMode: 'state_effect',
     effectClass: 'consumable',
-    // Never abandon a live furnace window: the backend polls the output for up to ~30s.
-    timeoutTicks: 900,
+    // Never abandon a live furnace window: the backend polls the output for up to ~60s.
+    timeoutTicks: 1400,
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
@@ -113,13 +113,19 @@ const smelt: AtomicAction = {
       const delta = snapshotDelta(s0, s1);
       // `item` is the INPUT; the OUTPUT is whatever increased in the inventory.
       const produced = Object.entries(delta).filter(([, d]) => d > 0);
-      if (r.accepted && produced.length > 0) {
-        return pass({
-          resources: { inventoryDelta: delta },
-          evidence: [{ claim: 'inv_delta', source: 'authoritative', value: Object.fromEntries(produced) }],
-          data: { produced: Object.fromEntries(produced), consumed: Object.fromEntries(Object.entries(delta).filter(([, d]) => d < 0)) },
-          attribution: 'self_temporal',
-        });
+      const made = produced.reduce((s, [, d]) => s + d, 0);
+      const want = Math.max(1, Number(args.count ?? 1));
+      const evidence = [{ claim: 'inv_delta', source: 'authoritative' as const, value: Object.fromEntries(produced) }];
+      const res = {
+        resources: { inventoryDelta: delta },
+        evidence,
+        data: { produced: Object.fromEntries(produced), consumed: Object.fromEntries(Object.entries(delta).filter(([, d]) => d < 0)) },
+        attribution: 'self_temporal' as const,
+      };
+      if (r.accepted && made >= want) return pass(res);
+      if (made > 0) {
+        // Part of the batch came out (the rest is still in the furnace): NOT a pass.
+        return { ...pass(res), effectStatus: 'ambiguous', reason: 'effect_not_observed', reasonDetail: `smelted ${made}/${want}${r.note ? ` (${r.note})` : ''}` };
       }
       return fail('effect_not_observed', { reasonDetail: r.note ?? 'no output appeared in the inventory', resources: { inventoryDelta: delta } });
     });

@@ -526,13 +526,34 @@ export class MineflayerControlPort implements ControlPort {
 
   // ---- containers / production ----
 
+  /** Classify a block as a container kind, or null. mineflayer's openContainer only accepts
+   *  chest-likes; furnaces/tables/anvils need their own opener. */
+  private containerKind(name: string): 'chest' | 'furnace' | 'enchant' | 'anvil' | null {
+    if (/(furnace|smoker)$/.test(name)) return 'furnace';
+    if (name === 'minecraft:enchanting_table') return 'enchant';
+    if (/anvil$/.test(name)) return 'anvil';
+    if (/(chest|barrel|shulker_box|hopper|dispenser|dropper)$/.test(name)) return 'chest';
+    return null;
+  }
+
+  private openContainerByKind(bot: any, block: any, kind: string): Promise<any> {
+    if (kind === 'furnace') return bot.openFurnace(block);
+    if (kind === 'enchant') return bot.openEnchantmentTable(block);
+    if (kind === 'anvil') return bot.openAnvil(block);
+    return bot.openContainer(block);
+  }
+
   async openContainer(pos: Vec3): Promise<ControlReceipt> {
     const bot = this.b();
     const block = bot.blockAt(V(pos));
     if (!block) return no('no block at position');
+    const kind = this.containerKind(block.name);
+    if (!kind) return no(`${block.name} is not a container`);
     try {
-      await race(bot.openContainer(block), 'open_container');
-      return ok('observed', 'opened');
+      const win = await race(this.openContainerByKind(bot, block, kind), 'open_container');
+      // Leave the window OPEN (the caller may inspect it); close only on the next open/close.
+      void win;
+      return ok('observed', `opened ${block.name}`);
     } catch (e) {
       return no(String((e as Error)?.message ?? e));
     }
@@ -634,9 +655,13 @@ export class MineflayerControlPort implements ControlPort {
         const fuel = this.itemId(opts.fuel);
         if (fuel != null) await win.putFuel(fuel, null, 1);
       }
-      for (let i = 0; i < 60; i++) {
+      // A furnace smelts ~1 item / 10s, serially: wait for the requested amount (bounded to 60s),
+      // then take whatever is ready. The caller sees a partial result and can repeat.
+      const cycles = Math.min(120, Math.max(20, Math.ceil(count) * 20 + 20));
+      for (let i = 0; i < cycles; i++) {
         await sleep(500);
-        if (win.outputItem()) break;
+        const o = win.outputItem();
+        if (o && (o.count ?? 1) >= count) break;
       }
       const out = win.outputItem();
       if (!out) return no('no smelted output appeared (missing fuel, or the item is not smeltable)');
@@ -778,9 +803,11 @@ export class MineflayerControlPort implements ControlPort {
     const bot = this.b();
     const block = bot.blockAt(V(pos));
     if (!block) return [];
+    const kind = this.containerKind(block.name);
+    if (!kind) throw new Error(`${block.name} is not a container`);
     let win: any;
     try {
-      win = await bot.openContainer(block);
+      win = await this.openContainerByKind(bot, block, kind);
       return win.containerItems().map((i: any) => ({ slot: i.slot, item: 'minecraft:' + i.name, count: i.count }));
     } finally {
       try { if (win) await win.close(); } catch { /* ignore */ }

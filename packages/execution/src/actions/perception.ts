@@ -392,7 +392,12 @@ const inspectContainer: AtomicAction = {
     if (!rt.ok) return rt.result;
     const pos = rt.value.containerPos ?? rt.value.pos;
     if (!pos) return fail('precondition_failed', { reasonDetail: 'target has no container position' });
-    return pass({ data: { items: await ctx.ctrl.containerContents(pos) }, evidence: [{ claim: 'container_contents', source: 'observed' }] });
+    try {
+      const items = await ctx.ctrl.containerContents(pos);
+      return pass({ data: { items }, evidence: [{ claim: 'container_contents', source: 'observed' }] });
+    } catch (e) {
+      return fail('precondition_failed', { reasonDetail: String((e as Error)?.message ?? e) });
+    }
   },
 };
 
