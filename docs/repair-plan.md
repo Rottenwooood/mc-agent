@@ -3,6 +3,17 @@
 > 合并两轮反馈：① 空真 pass / 结果语义；② P0/P1/P2 实机清单；③ 自洽原则（一条路）。
 > 状态：方案，待拍板。日期：2026-10-12。
 
+## 实施状态（2026-10-12 更新）
+- **P0 全部完成**（`8b53682`）：Target/steps schema 内联、结构化错误（`accepted_shapes`+回显）、`handle` 一致、`members` schema 化 + 示例、`scan_blocks.bbox`。
+- **P1 完成**：
+  - 2.1 语义：引擎强制 `pass ⇒ changed`（否则 `no_op`）；`set_block` 判目标格 + `no_op`；背包类未知→`unobservable`；纯控制类显式标 `controlOnly`；`{kind:"block"}` 当场复验。
+  - 2.2 安全：挖掘/寻路预检液体；**楼梯式下挖**（`digStaircase`，goal 在下方时前进+下降，绝不捅进液体）。向上原语 `pillar_up` 本期不做。
+  - 2.3 合成：`lookup_recipe` 默认全量 + ingredients；`craft` 自动探测工作台；`count` = 结果数量语义。
+  - 2.4/2.5：`run_method` 汇总为 `no_op`、单条时间序 `changes` 反馈；引擎每次调用带自"上次调用"以来的变化切片（含第一次的基线，不回显历史）。
+  - 提交：`bccaa48` `5e57352` `f186aa1` `57bc703`。
+- **P2 完成**：液体 `adjacent`/`wouldFlood`/水-岩浆区分；错误带 `accepted_shapes`/`hint`；`get_inventory` 带 `slot`+`hotbar`；`scenarios/skills.seed.json` 种子；`relations` 走结构化目标错误。
+- **仍待办（未拍板，非本期）**：§2.5 传递方式**乙**（异步插入上下文 / 魔改 OpenCode）；`pillar_up`。
+
 ---
 
 ## 0. 原则（先定死，后面全部服从）
