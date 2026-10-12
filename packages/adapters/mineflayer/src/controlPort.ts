@@ -780,8 +780,15 @@ export class MineflayerControlPort implements ControlPort {
     const out: { result: { item: string; count: number }; ingredients: { item: string; count: number }[]; requiresTable: boolean }[] = [];
     for (const r of all) {
       if (table === true && !r.requiresTable) continue;
-      // `ingredients` is null for shaped recipes; derive them from the delta (negative counts).
-      const ing = r.ingredients ?? (r.delta ?? []).filter((d: { count: number }) => d.count < 0).map((d: { id: unknown; count: number }) => ({ id: d.id, count: -d.count }));
+      // Derive the ingredients from the recipe DELTA (the real consumption, negative counts);
+      // `recipe.ingredients` can carry signed/negative counts in the enum data.
+      const fromDelta = (r.delta ?? [])
+        .filter((d: { count: number }) => d.count < 0)
+        .map((d: { id: unknown; count: number }) => ({ id: d.id, count: -d.count }));
+      const ing =
+        fromDelta.length > 0
+          ? fromDelta
+          : (r.ingredients ?? []).map((i: { id: unknown; count: number }) => ({ id: i.id, count: Math.abs(i.count) }));
       const key = `${r.result.id}:${r.result.count}:${!!r.requiresTable}:${ing.map((i: { id: unknown; count: number }) => i.id + 'x' + i.count).join(',')}`;
       if (seen.has(key)) continue;
       seen.add(key);

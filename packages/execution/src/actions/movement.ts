@@ -1,11 +1,32 @@
 // Movement atomic actions. Targets are semantic; coordinates are resolved internally.
 
-import type { ActionResult, Target } from '@mc-agent/contracts';
+import type { ActionResult, Target, Vec3 } from '@mc-agent/contracts';
+import { isUnknown } from '@mc-agent/contracts';
 import { distance } from '@mc-agent/world';
 import { mk, pass, fail } from '../result.js';
-import type { AtomicAction } from './types.js';
+import type { ActionContext, AtomicAction } from './types.js';
 import { contract } from './types.js';
 import { resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
+
+/** Nearest STANDABLE cell (feet position with support) within a small box around `pos`. */
+async function nearestStandable(ctx: ActionContext, pos: Vec3, radius = 4): Promise<Vec3 | null> {
+  const box = {
+    min: [pos[0] - radius, pos[1] - 2, pos[2] - radius] as Vec3,
+    max: [pos[0] + radius, pos[1] + 2, pos[2] + radius] as Vec3,
+  };
+  const ss = await ctx.world.standableSurfaces(box);
+  if (isUnknown(ss) || ss.value.length === 0) return null;
+  let best = ss.value[0]!;
+  let bd = Number.POSITIVE_INFINITY;
+  for (const c of ss.value) {
+    const d = (c[0] - pos[0]) ** 2 + (c[1] - pos[1]) ** 2 + (c[2] - pos[2]) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = c;
+    }
+  }
+  return best;
+}
 
 const goTo: AtomicAction = {
   contract: contract({
@@ -36,7 +57,17 @@ const goTo: AtomicAction = {
       const rt = await resolveTargetOrFail(ctx, target);
       if (!rt.ok) return rt.result;
       if (!rt.value.pos) return fail('precondition_failed', { reasonDetail: 'target has no position' });
-      const pos = rt.value.pos;
+      // A pure coordinate is often a block you cannot stand in (dirt/ore). go_to means "get
+      // near", so snap a cell target to the nearest STANDABLE cell and report the real goal.
+      let pos = rt.value.pos;
+      let snappedFrom: Vec3 | undefined;
+      if ((target as { kind?: string }).kind === 'cell') {
+        const s = await nearestStandable(ctx, pos, 4);
+        if (s && (s[0] !== pos[0] || s[1] !== pos[1] || s[2] !== pos[2])) {
+          snappedFrom = pos;
+          pos = s;
+        }
+      }
       const r = await ctx.ctrl.goto(pos, { range, allowModify, timeoutMs });
       const broken = ((r.raw as { blocksBroken?: string[] } | undefined)?.blocksBroken) ?? [];
       const progress = broken.length
@@ -51,7 +82,8 @@ const goTo: AtomicAction = {
       if (arrived) {
         return pass({
           evidence: [{ claim: 'self_pos', source: 'authoritative', value: self }, ...(progress.evidence ?? [])],
-          ...(broken.length ? { effects: progress.effects, data: progress.data } : {}),
+          ...(broken.length ? { effects: progress.effects } : {}),
+          data: { target: pos, ...(snappedFrom ? { snappedFrom } : {}), ...(broken.length ? { blocksBroken: broken } : {}) },
           attribution: 'self_temporal',
         });
       }

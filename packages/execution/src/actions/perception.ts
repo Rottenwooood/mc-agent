@@ -441,6 +441,53 @@ const recall: AtomicAction = {
   },
 };
 
+const recipeTree: AtomicAction = {
+  contract: contract({
+    name: 'recipe_tree',
+    description:
+      'Recursive crafting plan for an item (READ-only): the recipe tree down to `depth`, each node with need / have / missing and requires_table, so you can see the whole craft chain and what is still missing. Use it to plan planks→sticks→pickaxe yourself, then run_method.',
+    params: {
+      type: 'object',
+      properties: { item: { type: 'string' }, count: { type: 'integer', default: 1 }, depth: { type: 'integer', default: 4 } },
+      required: ['item'],
+      additionalProperties: false,
+    },
+    effectClass: 'read',
+  }),
+  async run(ctx, args): Promise<ActionResult> {
+    const want = Math.max(1, Number(args.count ?? 1));
+    const maxDepth = Math.min(6, Math.max(1, Number(args.depth ?? 4)));
+    const inv = await ctx.world.inventory();
+    if (isUnknown(inv)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' });
+    const have = new Map<string, number>();
+    for (const i of inv.value) have.set(i.item, (have.get(i.item) ?? 0) + i.count);
+
+    const build = async (item: string, need: number, depth: number, path: Set<string>): Promise<Record<string, unknown>> => {
+      const h = have.get(item) ?? 0;
+      const node: Record<string, unknown> = { item, need, have: h, missing: Math.max(0, need - h) };
+      if (need <= h || depth <= 0 || path.has(item)) return node;
+      const recipes = await ctx.ctrl.lookupRecipe(item);
+      if (recipes.length === 0) {
+        node.leaf = true; // base material (gather it)
+        return node;
+      }
+      const rec = recipes[0]!;
+      node.result_count = rec.result.count;
+      node.requires_table = rec.requiresTable;
+      const times = Math.max(1, Math.ceil((need - h) / rec.result.count));
+      node.craft_times = times;
+      const next = new Set(path).add(item);
+      const ingredients: Record<string, unknown>[] = [];
+      for (const ing of rec.ingredients) ingredients.push(await build(ing.item, ing.count * times, depth - 1, next));
+      node.ingredients = ingredients;
+      return node;
+    };
+
+    const tree = await build(norm(String(args.item)), want, maxDepth, new Set());
+    return pass({ data: { tree }, evidence: [{ claim: 'recipe_tree', source: 'observed' }] });
+  },
+};
+
 export const perceptionActions: AtomicAction[] = [
   view,
   scanBlocks,
@@ -453,6 +500,7 @@ export const perceptionActions: AtomicAction[] = [
   raycast,
   inspectContainer,
   lookupRecipe,
+  recipeTree,
   getWorldInfo,
   recall,
 ];
