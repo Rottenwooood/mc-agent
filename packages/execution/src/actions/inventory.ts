@@ -31,9 +31,10 @@ const equip: AtomicAction = {
 const unequip: AtomicAction = {
   contract: contract({
     name: 'unequip',
-    description: 'Remove the item from a destination slot back to the inventory.',
+    description: 'Remove the item from a destination slot back to the inventory (control action).',
     params: { type: 'object', properties: { destination: { type: 'string', default: 'hand' } }, additionalProperties: false },
     effectClass: 'idempotent',
+    controlOnly: true,
   }),
   async run(ctx, args): Promise<ActionResult> {
     const r = await ctx.ctrl.unequip(String(args.destination ?? 'hand'));
