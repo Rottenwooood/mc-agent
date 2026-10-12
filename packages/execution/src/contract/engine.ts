@@ -5,6 +5,7 @@
 // happen" case: an effect that is present in the authoritative after-signature is accepted.
 
 import type { ActionResult, EventCursor, NeighborhoodDiff, Vec3, WorldEvent } from '@mc-agent/contracts';
+import { isUnknown } from '@mc-agent/contracts';
 import { guardedRun } from '../guard.js';
 import type { ActionContext, AtomicAction } from '../actions/types.js';
 import { captureSignature, diffSignatures, type EffectScope, type SignatureDiff, type VerifyOutcome } from './signature.js';
@@ -32,6 +33,18 @@ async function collectChanges(ctx: ActionContext): Promise<string[]> {
     if (!page.resetRequired) for (const e of page.events) out.push(formatEvent(e));
     changeCursor = page.cursor;
     return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Nearby dropped items — so mining is never silently decoupled from pickup. */
+async function nearbyDrops(ctx: ActionContext, radius = 4): Promise<string[]> {
+  try {
+    const es = await ctx.world.entities(radius);
+    if (isUnknown(es)) return [];
+    const n = es.value.filter((e) => e.type === 'minecraft:item').length;
+    return n > 0 ? [`${n} dropped item(s) nearby — use collect to pick them up`] : [];
   } catch {
     return [];
   }
@@ -115,5 +128,6 @@ export async function executeAction(
   if (before.pos && after.pos && (before.pos[0] !== after.pos[0] || before.pos[1] !== after.pos[1] || before.pos[2] !== after.pos[2])) {
     changes.push(`A moved to ${after.pos.map((v) => v.toFixed(1)).join(',')}`);
   }
+  changes.push(...(await nearbyDrops(ctx)));
   return changes.length > 0 ? { ...final, changes } : final;
 }

@@ -262,6 +262,10 @@ export class MineflayerControlPort implements ControlPort {
     const bot = this.b();
     const block = bot.blockAt(V(pos));
     if (!block) return no('no block at position');
+    // Liquid safety: refuse to dig a block that would drop the body into / breach a fluid.
+    if (/(water|lava)/.test(block.name)) return no(`hazard: ${block.name} is a fluid`);
+    const below = bot.blockAt(V([pos[0], pos[1] - 1, pos[2]]));
+    if (below && /(water|lava)/.test(below.name)) return no(`hazard: fluid below (${below.name})`);
     try {
       // Tool-requiring blocks drop nothing without the right tool; equip the best available.
       const tool = bot.pathfinder?.bestHarvestTool ? bot.pathfinder.bestHarvestTool(block) : null;
