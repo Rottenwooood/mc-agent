@@ -3,8 +3,12 @@
 
 import type { EvidenceLevel, Source } from './fact.js';
 
-export const EFFECT_STATUSES = ['pass', 'fail', 'ambiguous', 'unobservable'] as const;
+export const EFFECT_STATUSES = ['pass', 'fail', 'ambiguous', 'unobservable', 'no_op'] as const;
 export type EffectStatus = (typeof EFFECT_STATUSES)[number];
+// `pass`  — the intended effect is present in the authoritative evidence (the world changed).
+// `no_op` — the postcondition already held and NOTHING changed (e.g. set_block to air on a cell
+//           that was already air, or a target that was never the expected block). NOT a success.
+// `fail`  — the intended effect is absent; `ambiguous`/`unobservable` — cannot judge.
 
 export const CONTROL_STATUSES = [
   'completed',

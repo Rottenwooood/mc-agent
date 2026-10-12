@@ -24,10 +24,19 @@ function toNeighborhoodDiff(d: SignatureDiff): NeighborhoodDiff {
 function reconcile(result: ActionResult, v: VerifyOutcome, d: SignatureDiff): ActionResult {
   const diff = toNeighborhoodDiff(d);
   const evidence = [...result.evidence, ...v.evidence];
+  const noChange = !d.changed && Object.keys(d.inventoryDelta).length === 0;
   if (v.ok === 'fail') {
     return { ...result, effectStatus: 'fail', reason: result.reason ?? 'effect_not_observed', evidence, diff };
   }
+  if (v.ok === 'no_op') {
+    return { ...result, effectStatus: 'no_op', reason: null, reasonDetail: 'already satisfied (no change)', evidence, diff };
+  }
   if (v.ok === 'pass') {
+    // A verify "pass" is only a real pass if the world actually changed. If nothing changed
+    // anywhere in scope, the postcondition held vacuously — report `no_op`, never `pass`.
+    if (noChange) {
+      return { ...result, effectStatus: 'no_op', reason: null, reasonDetail: 'already satisfied (no change)', evidence, diff };
+    }
     const reconciled = result.effectStatus !== 'pass';
     return {
       ...result,

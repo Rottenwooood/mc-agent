@@ -90,7 +90,7 @@ const setBlock: AtomicAction = {
         return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', controlStatus: 'needs_replan' });
       }
       if (before.value === block) {
-        return pass({ evidence: [{ claim: 'already_at_target', source: 'authoritative' }], attribution: 'self_temporal' });
+        return mk({ effectStatus: 'no_op', evidence: [{ claim: 'already_at_target', source: 'authoritative', value: before.value }], attribution: 'self_temporal' });
       }
 
       if (navigate) {
@@ -179,11 +179,19 @@ const setBlock: AtomicAction = {
     };
   },
   async verify(ctx, args, win) {
-    const pos = win.anchor;
-    if (!pos) return null;
+    // Judge the INTENDED cell (re-resolved), never a degraded default anchor (which caused the
+    // vacuous "air == air" pass). Already at the wanted value → `no_op`, not `pass`.
+    const rt = await resolveTarget(ctx, args.target as Target);
+    if (!rt.ok || !rt.value.pos) {
+      return { ok: 'unobservable', evidence: [{ claim: 'block_at_target', source: 'authoritative', value: null }] };
+    }
+    const pos = rt.value.pos;
     const want = String(args.block);
     const before = win.before.blocks.get(key(pos)) ?? AIR;
     const after = win.after.blocks.get(key(pos)) ?? AIR;
+    if (before === want) {
+      return { ok: 'no_op', evidence: [{ claim: 'already_at_target', source: 'authoritative', before, after }] };
+    }
     return {
       ok: after === want ? 'pass' : 'fail',
       evidence: [{ claim: 'block_at_target', source: 'authoritative', before, after, value: after }],

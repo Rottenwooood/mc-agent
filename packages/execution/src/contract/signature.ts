@@ -38,7 +38,7 @@ export interface VerificationWindow {
 }
 
 export interface VerifyOutcome {
-  ok: 'pass' | 'fail' | 'unobservable';
+  ok: 'pass' | 'fail' | 'unobservable' | 'no_op';
   evidence: Evidence[];
 }
 

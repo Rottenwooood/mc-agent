@@ -382,7 +382,7 @@ const inspectContainer: AtomicAction = {
 };
 
 const lookupRecipe: AtomicAction = {
-  contract: contract({ name: 'lookup_recipe', description: 'Crafting recipes for an item (ingredients, result, table requirement).', params: { type: 'object', properties: { item: { type: 'string' }, table: { type: 'boolean', default: false } }, required: ['item'], additionalProperties: false }, effectClass: 'read' }),
+  contract: contract({ name: 'lookup_recipe', description: 'Crafting recipes for an item — ALL of them (2×2 and 3×3), each with result, real ingredients, and requiresTable. Pass table:true to restrict to table-only recipes.', params: { type: 'object', properties: { item: { type: 'string' }, table: { type: 'boolean', default: false } }, required: ['item'], additionalProperties: false }, effectClass: 'read' }),
   async run(ctx, args): Promise<ActionResult> {
     return pass({ data: await ctx.ctrl.lookupRecipe(String(args.item), args.table === true), evidence: [{ claim: 'recipes', source: 'observed' }] });
   },

@@ -482,7 +482,12 @@ export class MineflayerControlPort implements ControlPort {
     const bot = this.b();
     const id = this.itemId(item);
     if (id == null) return no('unknown item ' + item);
-    const table = tablePos ? bot.blockAt(V(tablePos)) : null;
+    let table = tablePos ? bot.blockAt(V(tablePos)) : null;
+    // Auto-detect a nearby crafting table when the 2x2 recipes cannot satisfy the request.
+    if (!table && bot.recipesFor(id, null, count, null).length === 0) {
+      const tid = bot.registry.blocksByName.crafting_table?.id;
+      if (tid != null) table = bot.findBlock({ matching: tid, maxDistance: 6 });
+    }
     try {
       const recipes = bot.recipesFor(id, null, count, table);
       if (!recipes.length) return no('no recipe / missing ingredients');
@@ -612,16 +617,29 @@ export class MineflayerControlPort implements ControlPort {
     return out;
   }
 
-  async lookupRecipe(item: string, table = false): Promise<{ result: { item: string; count: number }; ingredients: { item: string; count: number }[]; requiresTable: boolean }[]> {
+  async lookupRecipe(item: string, table?: boolean): Promise<{ result: { item: string; count: number }; ingredients: { item: string; count: number }[]; requiresTable: boolean }[]> {
     const bot = this.b();
     const id = this.itemId(item);
     if (id == null) return [];
-    const recipes = bot.recipesAll(id, null, table ? true : null);
-    return recipes.map((r: any) => ({
-      result: { item: 'minecraft:' + (bot.registry.items[r.result.id]?.name ?? r.result.id), count: r.result.count },
-      ingredients: (r.ingredients ?? []).map((i: any) => ({ item: 'minecraft:' + (bot.registry.items[i.id]?.name ?? i.id), count: i.count })),
-      requiresTable: !!r.requiresTable,
-    }));
+    const nm = (iid: unknown): string => 'minecraft:' + (bot.registry.items[iid as number]?.name ?? iid);
+    // Search ALL recipes (2x2 AND 3x3): pass a truthy table so `requiresTable` recipes are included.
+    const all = bot.recipesAll(id, null, true);
+    const seen = new Set<string>();
+    const out: { result: { item: string; count: number }; ingredients: { item: string; count: number }[]; requiresTable: boolean }[] = [];
+    for (const r of all) {
+      if (table === true && !r.requiresTable) continue;
+      // `ingredients` is null for shaped recipes; derive them from the delta (negative counts).
+      const ing = r.ingredients ?? (r.delta ?? []).filter((d: { count: number }) => d.count < 0).map((d: { id: unknown; count: number }) => ({ id: d.id, count: -d.count }));
+      const key = `${r.result.id}:${r.result.count}:${!!r.requiresTable}:${ing.map((i: { id: unknown; count: number }) => i.id + 'x' + i.count).join(',')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        result: { item: nm(r.result.id), count: r.result.count },
+        ingredients: ing.map((i: { id: unknown; count: number }) => ({ item: nm(i.id), count: i.count })),
+        requiresTable: !!r.requiresTable,
+      });
+    }
+    return out;
   }
 
   async worldInfo(): Promise<{ time: number; raining: boolean; dimension: string }> {
