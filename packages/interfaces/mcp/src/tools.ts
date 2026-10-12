@@ -25,16 +25,81 @@ const RESERVED_TOOL_NAMES = new Set<string>([
   'read_skill',
 ]);
 
+/** JSON Schema for a run_method step (action step {action,args?} or control step {op,...}). */
+const SET_SCHEMA = {
+  type: 'object',
+  description:
+    'A set expression (recomputed fresh against the world). One of: {op:"members",handle} (all cells of an object — use this to mine a vein/tree), {op:"surface",handle}, {op:"nearest",match} (block/tag), {op:"area",anchor,size,offset?}, {op:"box_cells",box}, {op:"component",seed,match}, {op:"region",box,filter?}, {op:"set_difference",a,b}.',
+  properties: {
+    op: { enum: ['members', 'surface', 'nearest', 'area', 'component', 'region', 'box_cells', 'set_difference'] },
+    handle: { type: 'string', description: 'obj:... handle (members/surface)' },
+    match: { description: 'block id, or {block}|{tag}|{anyOf} (nearest/component)' },
+    anchor: { description: "obj:... handle or 'self' (area)" },
+    size: { type: 'array', items: { type: 'integer' }, description: '[dx,dy,dz] (area)' },
+    offset: { type: 'array', items: { type: 'integer' }, description: '[dx,dy,dz] (area)' },
+    seed: { description: '[x,y,z] (component)' },
+    box: { description: '{min:[x,y,z],max:[x,y,z]} (region/box_cells)' },
+  },
+  required: ['op'],
+};
+const STEP_SCHEMA = {
+  type: 'object',
+  description:
+    'A step: an ACTION step {action:"<tool>", args:{...}} OR a CONTROL step {op:"sequence"|"for_each"|"repeat"|"branch", ...}. For for_each: {op:"for_each", set:<SetExpr>, as:"c", body:[Step...]}; reference the loop var inside args with {"from":"c"}.',
+  properties: {
+    action: { type: 'string', description: 'Action/tool name, e.g. set_block, go_to, craft, collect.' },
+    args: { type: 'object', description: 'Args for the action. Use {"from":"c"} to reference the for_each variable.' },
+    save: { type: 'string' },
+    op: { enum: ['sequence', 'for_each', 'repeat', 'branch'] },
+    steps: { type: 'array', items: { type: 'object' }, description: 'sequence: child steps' },
+    set: SET_SCHEMA,
+    as: { type: 'string', description: 'for_each loop variable name' },
+    body: { type: 'array', items: { type: 'object' }, description: 'for_each/repeat: child steps' },
+    count: { description: 'repeat count' },
+    until: { type: 'object', description: 'repeat until predicate' },
+    if: { type: 'object', description: 'branch condition predicate' },
+    then: { type: 'array', items: { type: 'object' } },
+    else: { type: 'array', items: { type: 'object' } },
+  },
+};
+
+const RUN_METHOD_DESCRIPTION = [
+  'Execute a bounded composed method over the atomic actions — THE way to act on a SERIES (e.g. mine a whole vein/tree). The whole run is judged by its terminal `postconditions`.',
+  '',
+  'A step is EITHER:',
+  '  - an ACTION step  { "action": "<tool>", "args": { ... } }   e.g. {"action":"set_block","args":{...}}',
+  '  - a CONTROL step  { "op": "sequence"|"for_each"|"repeat"|"branch", ... }',
+  '      for_each: { "op":"for_each", "set": <SetExpr>, "as":"c", "body":[Step...] }  — body iterates the cells; inside, reference the loop var with {"from":"c"}.',
+  '',
+  'SetExpr (for_each `set`, recomputed fresh):',
+  '  { "op":"members", "handle":"obj:..." }   all cells of an object  <- mine a vein/tree with this',
+  '  { "op":"surface", "handle":"obj:..." }   its air/water-exposed cells',
+  '  { "op":"nearest", "match":"minecraft:stone" }   nearest object matching a block/tag',
+  '  { "op":"area", "anchor":"obj:...|self", "size":[dx,dy,dz], "offset":[dx,dy,dz] }',
+  '  { "op":"box_cells", "box":{"min":[x,y,z],"max":[x,y,z]} }',
+  '',
+  'postconditions (terminal, authoritative): subject `block@x,y,z` (is/!=), `inv:<item>` (>=/>/is/...), `self.hp|food`, `entity#<id>`, `obj:<handle>` (gone/present/size_ge/size_is).',
+  '',
+  'EXAMPLE 1 — mine a whole object, then collect the drops:',
+  '{"steps":[',
+  '  {"op":"for_each","set":{"op":"members","handle":"obj:block:minecraft:spruce_log:12,73,9"},"as":"c","body":[',
+  '    {"action":"set_block","args":{"target":{"kind":"cell","pos":{"from":"c"}},"block":"minecraft:air","navigate":true,"allowModify":true,"breakThrough":true}}]},',
+  '  {"action":"collect","args":{"radius":8}}]}',
+  '',
+  'EXAMPLE 2 — same, with a terminal postcondition:',
+  '{"steps":[{"op":"for_each","set":{"op":"members","handle":"obj:..."},"as":"c","body":[{"action":"set_block","args":{"target":{"kind":"cell","pos":{"from":"c"}},"block":"minecraft:air","navigate":true,"allowModify":true,"breakThrough":true}}]}],',
+  ' "postconditions":[{"subject":"inv:minecraft:coal","predicate":">=","value":1}]}',
+].join('\n');
+
 const runMethodTool: ToolDef = {
   name: 'run_method',
   title: 'run_method',
-  description:
-    'Execute a bounded composed method: declared steps over the atomic actions. Control ops: sequence/for_each/repeat/branch. Set exprs: members(handle) / surface(handle) / nearest(match) / area(anchor,size,offset) / set_difference (region/box_cells kept as an unguided fallback). Targets may be object handles (from view/scan_blocks), compass directions, or nearest-block. Sets are recomputed fresh (fill only what is missing); the whole run is judged by its terminal postconditions (block@, inv:, self., entity#, and object handles obj:/ent:). This is the ad-hoc (temporary) composition path; promote a good one with define_action.',
+  description: RUN_METHOD_DESCRIPTION,
   inputSchema: {
     type: 'object',
     properties: {
       name: { type: 'string' },
-      steps: { type: 'array', items: { type: 'object' }, description: 'Step[] (action steps and control ops)' },
+      steps: { type: 'array', items: STEP_SCHEMA, description: 'Step[]: action steps {action,args?} and control steps {op,...}' },
       postconditions: { type: 'array', items: { type: 'object' }, description: 'Predicate[] terminal postcondition' },
       args: { type: 'object', description: 'Initial variable bindings' },
       budget: { type: 'integer', default: 4096 },

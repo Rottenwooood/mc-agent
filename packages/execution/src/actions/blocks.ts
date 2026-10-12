@@ -7,7 +7,7 @@ import { distance, key } from '@mc-agent/world';
 import { mk, pass, fail } from '../result.js';
 import type { ActionContext, AtomicAction } from './types.js';
 import { contract } from './types.js';
-import { resolveTarget } from './target.js';
+import { resolveTarget, resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const AIR = 'minecraft:air';
 /** Interaction reach — keep consistent with scan_blocks' `touchable` (perception REACH). */
@@ -53,7 +53,7 @@ const setBlock: AtomicAction = {
     params: {
       type: 'object',
       properties: {
-        target: { type: 'object', description: 'Target (block/cell/…)' },
+        target: TARGET_SCHEMA,
         block: { type: 'string', description: 'Target block id, e.g. minecraft:oak_planks or minecraft:air' },
         navigate: { type: 'boolean', default: true },
         allowModify: { type: 'boolean', default: false, description: 'Allow pathfinder to modify terrain (scaffolding)' },
@@ -79,9 +79,10 @@ const setBlock: AtomicAction = {
     const explicitFace = Array.isArray(args.face) ? (args.face as Vec3) : null;
 
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, target);
-      if (!rt.ok || !rt.value.pos) {
-        return fail('precondition_failed', { reasonDetail: rt.ok ? 'target has no position' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, target);
+      if (!rt.ok) return rt.result;
+      if (!rt.value.pos) {
+        return fail('precondition_failed', { reasonDetail: 'target has no position' });
       }
       const pos = rt.value.pos;
       const before = await ctx.world.blockAt(pos);
@@ -194,15 +195,16 @@ const useBlock: AtomicAction = {
   contract: contract({
     name: 'use_block',
     description: 'Right-click a block at a target (open a container, toggle a door/lever, etc.).',
-    params: { type: 'object', properties: { target: { type: 'object' } }, required: ['target'], additionalProperties: false },
+    params: { type: 'object', properties: { target: TARGET_SCHEMA }, required: ['target'], additionalProperties: false },
     verificationMode: 'observation',
     effectClass: 'idempotent',
   }),
   async run(ctx, args): Promise<ActionResult> {
     const target = args.target as Target;
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, target);
-      if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, target);
+      if (!rt.ok) return rt.result;
+      if (!rt.value.pos) return fail('precondition_failed', { reasonDetail: 'target has no position' });
       const r = await ctx.ctrl.use(rt.value.pos);
       return r.accepted
         ? mk({ effectStatus: 'pass', evidence: [{ claim: 'activated', source: 'observed' }], attribution: 'self_temporal' })

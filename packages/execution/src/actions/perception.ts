@@ -19,7 +19,7 @@ import {
 import { mk, pass, fail } from '../result.js';
 import type { ActionContext, AtomicAction } from './types.js';
 import { contract } from './types.js';
-import { resolveTarget } from './target.js';
+import { resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const norm = (b: string): string => (b.includes(':') ? b : 'minecraft:' + b);
 const REACH = 4.5;
@@ -59,6 +59,18 @@ async function reachableFor(ctx: ActionContext, o: WorldObject): Promise<boolean
   }
 }
 
+function bboxOf(cells: readonly Vec3[]): { min: Vec3; max: Vec3 } | null {
+  if (cells.length === 0) return null;
+  const min: Vec3 = [Infinity, Infinity, Infinity];
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const c of cells)
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i]!, c[i]!);
+      max[i] = Math.max(max[i]!, c[i]!);
+    }
+  return { min, max };
+}
+
 function objectBrief(o: WorldObject): Record<string, unknown> {
   return {
     handle: o.handle,
@@ -70,6 +82,7 @@ function objectBrief(o: WorldObject): Record<string, unknown> {
     edge_distance: o.edgeDistance,
     touchable: o.touchable,
     sample: o.anchor,
+    bbox: bboxOf(o.cells),
   };
 }
 
@@ -244,12 +257,13 @@ const relations: AtomicAction = {
     name: 'relations',
     description:
       'Fallback re-check of one target (handle | compass direction | nearest matching block): distance, touchable, reachable (client path), line of sight (client), adjacent air, support, hazardous.',
-    params: { type: 'object', properties: { target: { type: 'object' } }, required: ['target'], additionalProperties: false },
+    params: { type: 'object', properties: { target: TARGET_SCHEMA }, required: ['target'], additionalProperties: false },
     effectClass: 'read',
   }),
   async run(ctx, args): Promise<ActionResult> {
-    const rt = await resolveTarget(ctx, args.target as Target);
-    if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
+    const rt = await resolveTargetOrFail(ctx, args.target as Target);
+    if (!rt.ok) return rt.result;
+    if (!rt.value.pos) return fail('precondition_failed', { reasonDetail: 'target has no position' });
     const pos = rt.value.pos;
     const self = await ctx.world.selfPos();
     const dist = self ? distance(self, pos) : null;
@@ -357,11 +371,12 @@ const raycast: AtomicAction = {
 };
 
 const inspectContainer: AtomicAction = {
-  contract: contract({ name: 'inspect_container', description: 'Read a container’s contents (observed): open, read slots, close.', params: { type: 'object', properties: { target: { type: 'object' } }, required: ['target'], additionalProperties: false }, effectClass: 'read' }),
+  contract: contract({ name: 'inspect_container', description: 'Read a container’s contents (observed): open, read slots, close.', params: { type: 'object', properties: { target: TARGET_SCHEMA }, required: ['target'], additionalProperties: false }, effectClass: 'read' }),
   async run(ctx, args): Promise<ActionResult> {
-    const rt = await resolveTarget(ctx, args.target as Target);
-    const pos = rt.ok ? rt.value.containerPos ?? rt.value.pos : undefined;
-    if (!pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no container position' : rt.reason });
+    const rt = await resolveTargetOrFail(ctx, args.target as Target);
+    if (!rt.ok) return rt.result;
+    const pos = rt.value.containerPos ?? rt.value.pos;
+    if (!pos) return fail('precondition_failed', { reasonDetail: 'target has no container position' });
     return pass({ data: { items: await ctx.ctrl.containerContents(pos) }, evidence: [{ claim: 'container_contents', source: 'observed' }] });
   },
 };

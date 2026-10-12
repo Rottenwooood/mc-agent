@@ -5,19 +5,19 @@ import { pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
 import { invCount } from './helpers.js';
-import { resolveTarget } from './target.js';
+import { resolveTarget, resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const openContainer: AtomicAction = {
   contract: contract({
     name: 'open_container',
     description: 'Open the container/block at a target and leave its window open.',
-    params: { type: 'object', properties: { target: { type: 'object' } }, required: ['target'], additionalProperties: false },
+    params: { type: 'object', properties: { target: TARGET_SCHEMA }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, args.target as never);
-      if (!rt.ok) return fail('precondition_failed', { reasonDetail: rt.reason });
+      const rt = await resolveTargetOrFail(ctx, args.target as never);
+      if (!rt.ok) return rt.result;
       const pos = rt.value.containerPos ?? rt.value.pos;
       if (!pos) return fail('precondition_failed', { reasonDetail: 'no position' });
       const r = await ctx.ctrl.openContainer(pos);
@@ -119,14 +119,15 @@ const trade: AtomicAction = {
   contract: contract({
     name: 'trade',
     description: 'Perform a villager trade by index. Verified on the authoritative inventory delta.',
-    params: { type: 'object', properties: { target: { type: 'object' }, index: { type: 'integer', default: 0 }, times: { type: 'integer', default: 1 } }, required: ['target'], additionalProperties: false },
+    params: { type: 'object', properties: { target: TARGET_SCHEMA, index: { type: 'integer', default: 0 }, times: { type: 'integer', default: 1 } }, required: ['target'], additionalProperties: false },
     verificationMode: 'state_effect',
     effectClass: 'consumable',
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, args.target as never);
-      if (!rt.ok || !rt.value.entityId) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no entity' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, args.target as never);
+      if (!rt.ok) return rt.result;
+      if (!rt.value.entityId) return fail('precondition_failed', { reasonDetail: 'target has no entity' });
       const inv0 = await ctx.world.inventory();
       const r = await ctx.ctrl.trade(rt.value.entityId, Number(args.index ?? 0), Number(args.times ?? 1));
       const inv1 = await ctx.world.inventory();

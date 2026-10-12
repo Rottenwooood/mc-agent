@@ -73,7 +73,20 @@ export async function guardedRun(
       : null;
     const timeoutMs = Math.min(MAX_ACTION_MS, Math.max(1000, contract.timeoutTicks * 50) + TIMEOUT_MARGIN_MS);
     try {
-      const result = await withTimeout(Promise.resolve(action.run(ctx, args)), timeoutMs);
+      let result: ActionResult;
+      try {
+        result = await withTimeout(Promise.resolve(action.run(ctx, args)), timeoutMs);
+      } catch (inner) {
+        if (inner instanceof ActionTimeout) throw inner;
+        // Never surface a raw JS exception to the model — return a structured, self-correcting error.
+        return mk({
+          effectStatus: 'fail',
+          controlStatus: 'needs_replan',
+          reason: 'precondition_failed',
+          reasonDetail: `${contract.name} threw: ${String((inner as Error)?.message ?? inner)}`,
+          data: { tool: contract.name },
+        });
+      }
       if (state.violation) {
         await ctx.ctrl.stopMotion();
         return mk({

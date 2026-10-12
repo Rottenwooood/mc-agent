@@ -5,7 +5,7 @@ import { pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
 import { invCount } from './helpers.js';
-import { resolveTarget } from './target.js';
+import { resolveTarget, resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const equip: AtomicAction = {
   contract: contract({
@@ -65,16 +65,17 @@ const transferItem: AtomicAction = {
   contract: contract({
     name: 'transfer_item',
     description: 'Move `count` items between the inventory and a container target.',
-    params: { type: 'object', properties: { item: { type: 'string' }, count: { type: 'integer', default: 1 }, from: { type: 'string', enum: ['inventory', 'container'], default: 'inventory' }, to: { type: 'string', enum: ['inventory', 'container'], default: 'container' }, target: { type: 'object' } }, required: ['item', 'target'], additionalProperties: false },
+    params: { type: 'object', properties: { item: { type: 'string' }, count: { type: 'integer', default: 1 }, from: { type: 'string', enum: ['inventory', 'container'], default: 'inventory' }, to: { type: 'string', enum: ['inventory', 'container'], default: 'container' }, target: TARGET_SCHEMA }, required: ['item', 'target'], additionalProperties: false },
     verificationMode: 'state_effect',
     effectClass: 'idempotent',
   }),
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const item = String(args.item);
-      const rt = await resolveTarget(ctx, args.target as never);
-      const pos = rt.ok ? rt.value.containerPos : undefined;
-      if (!pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no container position' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, args.target as never);
+      if (!rt.ok) return rt.result;
+      const pos = rt.value.containerPos;
+      if (!pos) return fail('precondition_failed', { reasonDetail: 'target has no container position' });
       const before = await invCount(ctx.world, item);
       const r = await ctx.ctrl.transfer(item, Number(args.count ?? 1), {
         from: (String(args.from ?? 'inventory') as 'inventory' | 'container'),

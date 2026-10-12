@@ -5,7 +5,7 @@ import { distance } from '@mc-agent/world';
 import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
-import { resolveTarget } from './target.js';
+import { resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const goTo: AtomicAction = {
   contract: contract({
@@ -14,7 +14,7 @@ const goTo: AtomicAction = {
     params: {
       type: 'object',
       properties: {
-        target: { type: 'object' },
+        target: TARGET_SCHEMA,
         range: { type: 'number', default: 1 },
         allowModify: { type: 'boolean', default: false },
         timeoutMs: { type: 'integer', default: 15000, description: 'Movement budget; raise it for long terrain-modifying (allowModify) trips.' },
@@ -33,8 +33,9 @@ const goTo: AtomicAction = {
     const allowModify = args.allowModify === true;
     const timeoutMs = Number(args.timeoutMs ?? 15000);
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, target);
-      if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, target);
+      if (!rt.ok) return rt.result;
+      if (!rt.value.pos) return fail('precondition_failed', { reasonDetail: 'target has no position' });
       const pos = rt.value.pos;
       const r = await ctx.ctrl.goto(pos, { range, allowModify, timeoutMs });
       const broken = ((r.raw as { blocksBroken?: string[] } | undefined)?.blocksBroken) ?? [];
@@ -66,14 +67,15 @@ const lookAt: AtomicAction = {
   contract: contract({
     name: 'look_at',
     description: 'Turn the view toward a target.',
-    params: { type: 'object', properties: { target: { type: 'object' } }, required: ['target'], additionalProperties: false },
+    params: { type: 'object', properties: { target: TARGET_SCHEMA }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
   }),
   async run(ctx, args): Promise<ActionResult> {
     const target = args.target as Target;
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, target);
-      if (!rt.ok || !rt.value.pos) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no position' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, target);
+      if (!rt.ok) return rt.result;
+      if (!rt.value.pos) return fail('precondition_failed', { reasonDetail: 'target has no position' });
       const r = await ctx.ctrl.lookAt(rt.value.pos);
       return r.accepted ? pass({ attribution: 'self_temporal' }) : fail('effect_not_observed', { reasonDetail: r.note });
     });
@@ -97,15 +99,16 @@ const follow: AtomicAction = {
   contract: contract({
     name: 'follow',
     description: 'Follow a target entity for a bounded duration, keeping within `distance`.',
-    params: { type: 'object', properties: { target: { type: 'object' }, distance: { type: 'number', default: 3 }, durationMs: { type: 'integer', default: 5000 } }, required: ['target'], additionalProperties: false },
+    params: { type: 'object', properties: { target: TARGET_SCHEMA, distance: { type: 'number', default: 3 }, durationMs: { type: 'integer', default: 5000 } }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
     verificationMode: 'task_terminal',
   }),
   async run(ctx, args): Promise<ActionResult> {
     const target = args.target as Target;
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, target);
-      if (!rt.ok || !rt.value.entityId) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no entity' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, target);
+      if (!rt.ok) return rt.result;
+      if (!rt.value.entityId) return fail('precondition_failed', { reasonDetail: 'target has no entity' });
       const r = await ctx.ctrl.follow(rt.value.entityId, Number(args.distance ?? 3), Number(args.durationMs ?? 5000));
       return r.accepted ? mk({ effectStatus: 'pass', evidence: [{ claim: 'followed', source: 'observed' }], attribution: 'self_temporal' }) : fail('effect_not_observed', { reasonDetail: r.note });
     });
@@ -116,15 +119,16 @@ const flee: AtomicAction = {
   contract: contract({
     name: 'flee',
     description: 'Move away from a target entity to at least `distance` blocks.',
-    params: { type: 'object', properties: { target: { type: 'object' }, distance: { type: 'number', default: 12 } }, required: ['target'], additionalProperties: false },
+    params: { type: 'object', properties: { target: TARGET_SCHEMA, distance: { type: 'number', default: 12 } }, required: ['target'], additionalProperties: false },
     effectClass: 'idempotent',
     verificationMode: 'task_terminal',
   }),
   async run(ctx, args): Promise<ActionResult> {
     const target = args.target as Target;
     return ctx.token.run(async () => {
-      const rt = await resolveTarget(ctx, target);
-      if (!rt.ok || !rt.value.entityId) return fail('precondition_failed', { reasonDetail: rt.ok ? 'no entity' : rt.reason });
+      const rt = await resolveTargetOrFail(ctx, target);
+      if (!rt.ok) return rt.result;
+      if (!rt.value.entityId) return fail('precondition_failed', { reasonDetail: 'target has no entity' });
       const r = await ctx.ctrl.flee(rt.value.entityId, Number(args.distance ?? 12));
       return r.accepted ? mk({ effectStatus: 'pass', evidence: [{ claim: 'fled', source: 'observed' }], attribution: 'self_temporal' }) : mk({ effectStatus: 'ambiguous', reason: 'effect_not_observed', reasonDetail: r.note, attribution: 'self_temporal' });
     });
