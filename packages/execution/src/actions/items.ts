@@ -104,12 +104,16 @@ const collect: AtomicAction = {
       if (gained > 0) {
         return pass({ resources: { inventoryDelta: delta }, evidence, attribution: 'self_temporal', ...(tail ? { reasonDetail: `picked some up${tail}` } : {}) });
       }
-      return mk({
-        effectStatus: 'fail',
-        reason: 'effect_not_observed',
-        reasonDetail: unreachable.length ? `no items picked up; ${unreachable.length} drop(s) unreachable (first: ${unreachable[0]})` : 'no items picked up (no drops in range)',
-        evidence,
-      });
+      // Drops that merely could not be reached are a real failure; nothing to collect is NOT.
+      if (unreachable.length > 0) {
+        return mk({
+          effectStatus: 'fail',
+          reason: 'effect_not_observed',
+          reasonDetail: `no items picked up; ${unreachable.length} drop(s) unreachable (first: ${unreachable[0]})`,
+          evidence,
+        });
+      }
+      return mk({ effectStatus: 'no_op', reason: null, reasonDetail: 'nothing to collect (no drops in range)', evidence });
     });
   },
 };

@@ -1,0 +1,94 @@
+{
+  "thresholds": { "minUses": 3, "minPassRate": 0.6, "recentWindow": 5, "minRecentPassRate": 0.6 },
+  "actions": [
+    {
+      "name": "mine_object",
+      "description": "Mine every block of an OBJECT (a vein/tree) and collect the drops.",
+      "activeVersion": 1,
+      "versions": [
+        {
+          "version": 1,
+          "status": "active",
+          "stats": { "uses": 0, "pass": 0, "fail": 0, "unknown": 0, "recent": [], "repairs": 0, "regressions": 0, "lastUsedAt": null },
+          "method": {
+            "id": "mine_object@1",
+            "version": 1,
+            "name": "mine_object",
+            "description": "Mine every block of an OBJECT (a vein/tree) and collect the drops.",
+            "params": { "handle": { "type": "string", "description": "obj:... handle from scan_blocks/view" } },
+            "preconditions": [],
+            "postconditions": [],
+            "invariants": [],
+            "steps": [
+              {
+                "op": "for_each",
+                "set": { "op": "members", "handle": { "from": "handle" } },
+                "as": "c",
+                "body": [
+                  {
+                    "action": "set_block",
+                    "args": {
+                      "target": { "kind": "cell", "pos": { "from": "c" } },
+                      "block": "minecraft:air",
+                      "navigate": true,
+                      "allowModify": true,
+                      "breakThrough": true
+                    }
+                  }
+                ]
+              },
+              { "action": "collect", "args": { "radius": 8 } }
+            ],
+            "failurePolicy": { "retry": "safe_only", "repair": "local_step", "onFail": "hand_back" },
+            "provenance": { "source": "human", "created": "2026-10-13T00:00:00.000Z", "note": "seeded starter action" }
+          }
+        }
+      ],
+      "history": [
+        { "at": "2026-10-13T00:00:00.000Z", "action": "define", "version": 1 },
+        { "at": "2026-10-13T00:00:00.000Z", "action": "activate", "version": 1 }
+      ]
+    },
+    {
+      "name": "mine_block",
+      "description": "Mine the nearest block of an id and collect the drop.",
+      "activeVersion": 1,
+      "versions": [
+        {
+          "version": 1,
+          "status": "active",
+          "stats": { "uses": 0, "pass": 0, "fail": 0, "unknown": 0, "recent": [], "repairs": 0, "regressions": 0, "lastUsedAt": null },
+          "method": {
+            "id": "mine_block@1",
+            "version": 1,
+            "name": "mine_block",
+            "description": "Mine the nearest block of an id and collect the drop.",
+            "params": { "block": { "type": "string", "description": "block id, e.g. minecraft:iron_ore" } },
+            "preconditions": [],
+            "postconditions": [],
+            "invariants": [],
+            "steps": [
+              {
+                "action": "set_block",
+                "args": {
+                  "target": { "kind": "block", "block": { "from": "block" } },
+                  "block": "minecraft:air",
+                  "navigate": true,
+                  "allowModify": true,
+                  "breakThrough": true
+                }
+              },
+              { "action": "collect", "args": { "radius": 8 } }
+            ],
+            "failurePolicy": { "retry": "safe_only", "repair": "local_step", "onFail": "hand_back" },
+            "provenance": { "source": "human", "created": "2026-10-13T00:00:00.000Z", "note": "seeded starter action" }
+          }
+        }
+      ],
+      "history": [
+        { "at": "2026-10-13T00:00:00.000Z", "action": "define", "version": 1 },
+        { "at": "2026-10-13T00:00:00.000Z", "action": "activate", "version": 1 }
+      ]
+    }
+  ]
+}
