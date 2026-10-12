@@ -1,0 +1,28 @@
+{
+  "skills": [
+    {
+      "name": "mine-a-series",
+      "description": "Mine a whole vein/tree (a SERIES of blocks) the one right way",
+      "tags": ["mining", "run_method", "members"],
+      "text": "To mine a whole object (vein/tree): 1) scan_blocks to get its handle. 2) run_method with a for_each over the object's members, then collect: {\"steps\":[{\"op\":\"for_each\",\"set\":{\"op\":\"members\",\"handle\":\"obj:...\"},\"as\":\"c\",\"body\":[{\"action\":\"set_block\",\"args\":{\"target\":{\"kind\":\"cell\",\"pos\":{\"from\":\"c\"}},\"block\":\"minecraft:air\",\"navigate\":true,\"allowModify\":true,\"breakThrough\":true}}]},{\"action\":\"collect\",\"args\":{\"radius\":8}}]}. NEVER loop set_block by hand for a series (not reusable, not assertable). After mining, get_inventory to verify the drops landed.",
+      "created": "2026-10-12T00:00:00.000Z",
+      "updated": "2026-10-12T00:00:00.000Z"
+    },
+    {
+      "name": "chopping",
+      "description": "Chop a tree and collect the logs",
+      "tags": ["wood", "run_method"],
+      "text": "scan_blocks {match:'#minecraft:logs'} -> go_to the handle (range 2) -> run_method for_each members -> set_block air -> collect. Logs drop item entities; always collect or the logs never enter the inventory.",
+      "created": "2026-10-12T00:00:00.000Z",
+      "updated": "2026-10-12T00:00:00.000Z"
+    },
+    {
+      "name": "craft-a-pickaxe",
+      "description": "From logs to a wooden pickaxe",
+      "tags": ["crafting"],
+      "text": "logs -> spruce_planks (craft 12 = 3 logs) -> stick (craft 4 = 2 planks) -> crafting_table (craft 1 = 4 planks) -> place the table next to solid ground -> craft wooden_pickaxe at the table (3 planks + 2 sticks). craft `count` is the desired RESULT amount. lookup_recipe gives ALL recipes (2x2 and 3x3) with real ingredients.",
+      "created": "2026-10-12T00:00:00.000Z",
+      "updated": "2026-10-12T00:00:00.000Z"
+    }
+  ]
+}

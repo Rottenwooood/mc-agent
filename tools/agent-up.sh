@@ -47,6 +47,13 @@ HOST=${SERVER%:*}
 PORT=${SERVER##*:}
 if [ "$HOST" = "$SERVER" ]; then HOST=$SERVER; PORT=25565; fi
 
+# Seed the skill library from the repo example if none exists yet.
+SKILLS_DEFAULT="$(pwd)/.mc-agent/skills.json"
+if [ -z "$SKILLS" ] && [ ! -f "$SKILLS_DEFAULT" ] && [ -f scenarios/skills.seed.json ]; then
+  mkdir -p .mc-agent && cp scenarios/skills.seed.json "$SKILLS_DEFAULT"
+  echo "agent-up: seeded .mc-agent/skills.json from scenarios/skills.seed.json" >&2
+fi
+
 export MCAGENT_CONTROL=$BACKEND MC_HOST=$HOST MC_PORT=$PORT MC_USER=$USER MC_VERSION=$VERSION MCAGENT_REFLEX=$REFLEX
 [ -n "$ACTIONS" ] && export MCAGENT_ACTIONS=$ACTIONS
 [ -n "$SKILLS" ] && export MCAGENT_SKILLS=$SKILLS

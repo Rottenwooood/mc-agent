@@ -83,6 +83,10 @@ function objectBrief(o: WorldObject): Record<string, unknown> {
     touchable: o.touchable,
     sample: o.anchor,
     bbox: bboxOf(o.cells),
+    // Liquid danger, expressed plainly (a 7080-cell fluid is hard to judge from size alone).
+    ...(isFluid(o.label)
+      ? { liquid: /lava/.test(o.label) ? 'lava' : 'water', dangerous: /lava/.test(o.label), adjacent: o.edgeDistance <= 1.5 }
+      : {}),
   };
 }
 
@@ -329,10 +333,12 @@ const getSelfStatus: AtomicAction = {
 };
 
 const getInventory: AtomicAction = {
-  contract: contract({ name: 'get_inventory', description: 'Authoritative inventory contents {item,count}.', params: { type: 'object', properties: {}, additionalProperties: false }, effectClass: 'read' }),
+  contract: contract({ name: 'get_inventory', description: 'Authoritative inventory contents {slot,hotbar,item,count} (slot 0-8 = hotbar).', params: { type: 'object', properties: {}, additionalProperties: false }, effectClass: 'read' }),
   async run(ctx): Promise<ActionResult> {
     const inv = await ctx.world.inventory();
-    return isUnknown(inv) ? mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' }) : pass({ data: inv.value.map((i) => ({ item: i.item, count: i.count })) });
+    return isUnknown(inv)
+      ? mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence' })
+      : pass({ data: inv.value.map((i) => ({ slot: i.slot, hotbar: i.slot >= 0 && i.slot < 9, item: i.item, count: i.count })) });
   },
 };
 
