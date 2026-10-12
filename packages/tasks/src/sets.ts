@@ -4,7 +4,7 @@
 
 import type { Box, Filter, SetExpr, Vec3 } from '@mc-agent/contracts';
 import { isUnknown } from '@mc-agent/contracts';
-import { connectedComponent, expandBox, key, parseHandle } from '@mc-agent/world';
+import { connectedComponent, distance, expandBox, key, parseHandle } from '@mc-agent/world';
 import type { ActionContext } from '@mc-agent/execution';
 import { resolveArg, type Vars } from './args.js';
 
@@ -40,6 +40,11 @@ function cellsInBox(box: Box): Vec3[] {
     }
   }
   return out;
+}
+
+/** A stable identity for a set element: a cell by its coords, anything else by its JSON. */
+function elemKey(p: unknown): string {
+  return Array.isArray(p) && p.length === 3 ? key(p as Vec3) : JSON.stringify(p);
 }
 
 /** All cells of the connected object at `anchor` with block id `label`, via a server-side filtered query. */
@@ -127,9 +132,39 @@ async function nearestObjectCells(ctx: ActionContext, filter?: Filter): Promise<
   return comp.cells.map((c) => c.pos);
 }
 
-export async function evalSet(ctx: ActionContext, set: SetExpr, vars: Vars): Promise<Vec3[]> {
+export async function evalSet(ctx: ActionContext, set: SetExpr, vars: Vars): Promise<unknown[]> {
   const world = ctx.world;
   switch (set.op) {
+    case 'inventory': {
+      const inv = await world.inventory();
+      if (isUnknown(inv)) return [];
+      return inv.value.map((s) => ({ slot: s.slot, item: s.item, count: s.count }));
+    }
+    case 'container': {
+      const pos = await resolveAnchor(ctx, set.handle, vars);
+      if (!pos) return [];
+      const items = await ctx.ctrl.containerContents(pos);
+      return items.map((s) => ({ slot: s.slot, item: s.item, count: s.count }));
+    }
+    case 'entities': {
+      const within = set.match?.within ?? 32;
+      const es = await world.entities(within);
+      if (isUnknown(es)) return [];
+      const self = await world.selfPos();
+      let list = es.value;
+      if (set.match?.type) {
+        const t = set.match.type.includes(':') ? set.match.type : 'minecraft:' + set.match.type;
+        list = list.filter((e) => e.type === t);
+      }
+      if (set.match?.hostile !== undefined) list = list.filter((e) => (e.hostile === true) === set.match!.hostile);
+      return list.map((e) => ({
+        id: e.id,
+        type: e.type,
+        pos: e.pos,
+        hostile: e.hostile === true,
+        distance: self ? Number(distance(self, e.pos).toFixed(2)) : null,
+      }));
+    }
     case 'members':
       return handleCells(ctx, String(resolveArg(set.handle, vars)));
     case 'surface': {
@@ -181,8 +216,8 @@ export async function evalSet(ctx: ActionContext, set: SetExpr, vars: Vars): Pro
     case 'set_difference': {
       const a = await evalSet(ctx, set.a, vars);
       const b = await evalSet(ctx, set.b, vars);
-      const bs = new Set(b.map((p) => key(p)));
-      return a.filter((p) => !bs.has(key(p)));
+      const bs = new Set(b.map(elemKey));
+      return a.filter((p) => !bs.has(elemKey(p)));
     }
   }
 }

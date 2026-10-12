@@ -51,7 +51,14 @@ export async function tryAction(
     ctx,
     actions,
     { steps: v.method.steps, postconditions: v.method.postconditions, ...(v.method.name ? { name: v.method.name } : {}) },
-    opts,
+    {
+      ...(opts.args ? { args: opts.args } : {}),
+      ...(opts.budget ? { budget: opts.budget } : {}),
+      ...(opts.budgetMs ? { budgetMs: opts.budgetMs } : {}),
+      ...(opts.depth !== undefined ? { depth: opts.depth } : {}),
+      // Hierarchical composition: a step may call another ACTIVE secondary action.
+      callSecondary: (c, acts, nm, a, d) => tryAction(c, acts, library, nm, { args: a, depth: d }),
+    },
   );
 
   const outcome = res.effectStatus === 'pass' ? 'pass' : res.effectStatus === 'fail' ? 'fail' : 'unknown';

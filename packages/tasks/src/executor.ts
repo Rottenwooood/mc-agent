@@ -21,9 +21,33 @@ export interface RunEnv {
   vars: Vars;
   actions: Map<string, AtomicAction>;
   results: ActionResult[];
+  trace: StepTrace[];
   budget: number;
   deadline: number;
+  /** Secondary-action nesting depth (guards against unbounded recursion). */
+  depth: number;
+  /** Dispatch an action name to a defined secondary action; absent = atoms only. */
+  callSecondary?: CallSecondary;
 }
+
+/** Per-step outcome, so credit can be assigned to the step that actually broke. */
+export interface StepTrace {
+  action: string;
+  effectStatus: ActionResult['effectStatus'];
+  reason?: ActionResult['reason'];
+  ms: number;
+}
+
+export type CallSecondary = (
+  ctx: ActionContext,
+  actions: Map<string, AtomicAction>,
+  name: string,
+  args: Record<string, unknown>,
+  depth: number,
+) => Promise<ActionResult>;
+
+/** Max secondary→secondary nesting depth (each level is a defined method call). */
+export const MAX_SECONDARY_DEPTH = 8;
 
 /** A composable declared by the agent: bounded steps + optional terminal postconditions. */
 export interface Composable {
@@ -85,17 +109,33 @@ async function runControl(c: ControlStep, env: RunEnv): Promise<void> {
 }
 
 async function runAction(step: ActionStep, env: RunEnv): Promise<void> {
-  const action = env.actions.get(step.action);
-  if (!action) {
-    env.results.push(
-      mk({ effectStatus: 'unobservable', reason: 'precondition_failed', reasonDetail: `unknown action ${step.action}` }),
-    );
-    return;
-  }
   const args: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(step.args ?? {})) args[k] = resolveArg(v, env.vars);
-  const result = await executeAction(env.ctx, action, args);
+  const t0 = Date.now();
+  const action = env.actions.get(step.action);
+  let result: ActionResult;
+  if (action) {
+    result = await executeAction(env.ctx, action, args);
+  } else if (env.callSecondary && env.depth < MAX_SECONDARY_DEPTH) {
+    // Hierarchical composition: a defined secondary action called from a method (abstraction accumulates).
+    result = await env.callSecondary(env.ctx, env.actions, step.action, args, env.depth + 1);
+  } else {
+    result = mk({
+      effectStatus: 'unobservable',
+      reason: 'precondition_failed',
+      reasonDetail:
+        env.depth >= MAX_SECONDARY_DEPTH
+          ? `secondary recursion too deep (>${MAX_SECONDARY_DEPTH}) at ${step.action}`
+          : `unknown action ${step.action}`,
+    });
+  }
   env.results.push(result);
+  env.trace.push({
+    action: step.action,
+    effectStatus: result.effectStatus,
+    ...(result.reason ? { reason: result.reason } : {}),
+    ms: Date.now() - t0,
+  });
   if (step.save) env.vars[step.save] = result.data ?? result;
 }
 
@@ -104,6 +144,10 @@ export interface RunMethodOptions {
   args?: Record<string, unknown>;
   /** Wall-clock ceiling so a composed run always returns (must stay under the MCP call cap). */
   budgetMs?: number;
+  /** Secondary-action nesting depth (set by tryAction for recursion guarding). */
+  depth?: number;
+  /** Dispatch an action name to a defined secondary action (hierarchical composition). */
+  callSecondary?: CallSecondary;
 }
 
 /** Execute a declared method over the atomic action library; judge the whole run by its postconditions. */
@@ -122,8 +166,11 @@ export async function runMethod(
     vars: { ...(opts.args ?? {}) },
     actions,
     results: [],
+    trace: [],
     budget: opts.budget ?? 4096,
     deadline: start + budgetMs,
+    depth: opts.depth ?? 0,
+    ...(opts.callSecondary ? { callSecondary: opts.callSecondary } : {}),
   };
   for (const step of method.steps) {
     await runStep(step, env);
@@ -167,16 +214,20 @@ export async function runMethod(
     for (const [k, v] of Object.entries(r.diff?.inventoryDelta ?? {})) inv[k] = (inv[k] ?? 0) + v;
   }
   for (const [item, d] of Object.entries(inv)) if (d !== 0) changes.push(`A ${item} ${d > 0 ? '+' + d : d}`);
+  const invDelta = Object.fromEntries(Object.entries(inv).filter(([, d]) => d !== 0));
 
   return mk({
     effectStatus,
     controlStatus: timedOut ? 'interrupted' : 'completed',
     reason,
     ...(reasonDetail ? { reasonDetail } : {}),
+    // Expose the run's net diff so a NESTED run (secondary called from a method) propagates its
+    // change to the outer run's `pass ⇒ changed` and inventory aggregation.
+    diff: { changed: changes.length > 0 || Object.keys(invDelta).length > 0, ...(Object.keys(invDelta).length ? { inventoryDelta: invDelta } : {}) },
     subResults: env.results,
     attribution: 'self_temporal',
     ...(changes.length ? { changes } : {}),
-    data: { steps: env.results.length, budgetLeft: env.budget, elapsedMs: Date.now() - start, timedOut, ...(blocksBroken.length ? { blocksBroken } : {}) },
+    data: { steps: env.results.length, budgetLeft: env.budget, elapsedMs: Date.now() - start, timedOut, trace: env.trace, ...(blocksBroken.length ? { blocksBroken } : {}) },
   });
 }
 
@@ -185,6 +236,92 @@ function runChanged(env: RunEnv): boolean {
   return env.results.some(
     (r) => r.diff?.changed === true || Object.values(r.diff?.inventoryDelta ?? {}).some((n) => n !== 0),
   );
+}
+
+// ---- static validation (run_method validate:true — no execution) ----
+
+export interface ValidationError {
+  path: string;
+  message: string;
+}
+export interface ValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
+  steps: number;
+}
+
+const CONTROL_OPS = new Set(['sequence', 'for_each', 'repeat', 'branch']);
+const SET_OPS = new Set(['members', 'surface', 'nearest', 'area', 'component', 'region', 'box_cells', 'set_difference', 'inventory', 'container', 'entities']);
+const PRED_OPS = new Set(['is', '==', '!=', '>=', '<=', '>', '<']);
+
+function checkSet(set: unknown, path: string, errors: ValidationError[]): void {
+  if (typeof set !== 'object' || set === null) return void errors.push({ path, message: 'set must be an object' });
+  const s = set as Record<string, unknown>;
+  const op = String(s.op ?? '');
+  if (!SET_OPS.has(op)) return void errors.push({ path, message: `unknown set op ${JSON.stringify(s.op)} (one of ${[...SET_OPS].join(', ')})` });
+  const need: Record<string, string[]> = {
+    members: ['handle'], surface: ['handle'], container: ['handle'], nearest: ['match'],
+    area: ['anchor', 'size'], box_cells: ['box'], region: ['box'], component: ['seed', 'match'],
+    set_difference: ['a', 'b'],
+  };
+  for (const k of need[op] ?? []) if (s[k] === undefined) errors.push({ path: `${path}.${k}`, message: `${op} requires ${k}` });
+  if (op === 'set_difference') {
+    checkSet(s.a, `${path}.a`, errors);
+    checkSet(s.b, `${path}.b`, errors);
+  }
+}
+
+function checkPredicate(p: unknown, path: string, errors: ValidationError[]): void {
+  if (typeof p !== 'object' || p === null) return void errors.push({ path, message: 'predicate must be an object' });
+  const o = p as Record<string, unknown>;
+  if (typeof o.subject !== 'string' || o.subject.length === 0) errors.push({ path: `${path}.subject`, message: 'predicate needs a subject string' });
+  if (!PRED_OPS.has(String(o.predicate))) errors.push({ path: `${path}.predicate`, message: `predicate must be one of ${[...PRED_OPS].join(', ')}` });
+}
+
+function checkSteps(steps: unknown, path: string, isAction: (n: string) => boolean, errors: ValidationError[], counter: { n: number }): void {
+  if (!Array.isArray(steps)) return void errors.push({ path, message: 'steps must be an array' });
+  steps.forEach((raw, i) => {
+    const p = `${path}[${i}]`;
+    if (typeof raw !== 'object' || raw === null) return void errors.push({ path: p, message: 'step must be an object' });
+    const st = raw as Record<string, unknown>;
+    if (typeof st.action === 'string') {
+      counter.n += 1;
+      if (!isAction(st.action)) errors.push({ path: `${p}.action`, message: `unknown action ${st.action}` });
+      return;
+    }
+    const op = String(st.op ?? '');
+    if (!CONTROL_OPS.has(op)) return void errors.push({ path: p, message: `step must have "action" or a control "op" (one of ${[...CONTROL_OPS].join(', ')})` });
+    if (op === 'sequence') checkSteps(st.steps, `${p}.steps`, isAction, errors, counter);
+    else if (op === 'for_each') {
+      checkSet(st.set, `${p}.set`, errors);
+      if (typeof st.as !== 'string') errors.push({ path: `${p}.as`, message: 'for_each requires a loop var name "as"' });
+      checkSteps(st.body, `${p}.body`, isAction, errors, counter);
+    } else if (op === 'repeat') {
+      checkSteps(st.body, `${p}.body`, isAction, errors, counter);
+      if (st.until !== undefined) checkPredicate(st.until, `${p}.until`, errors);
+    } else if (op === 'branch') {
+      if (st.if !== undefined) checkPredicate(st.if, `${p}.if`, errors);
+      else errors.push({ path: `${p}.if`, message: 'branch requires "if"' });
+      checkSteps(st.then, `${p}.then`, isAction, errors, counter);
+      if (st.else !== undefined) checkSteps(st.else, `${p}.else`, isAction, errors, counter);
+    }
+  });
+}
+
+/**
+ * Structurally validate a composed method WITHOUT executing it: known action names, set ops and
+ * their required fields, control-step shape, and postcondition/until/if predicates.
+ */
+export function validateMethod(
+  method: Composable,
+  opts: { actions: Map<string, AtomicAction>; isSecondary?: (name: string) => boolean },
+): ValidationResult {
+  const errors: ValidationError[] = [];
+  const isAction = (n: string): boolean => opts.actions.has(n) || opts.isSecondary?.(n) === true;
+  const counter = { n: 0 };
+  checkSteps(method.steps, 'steps', isAction, errors, counter);
+  (method.postconditions ?? []).forEach((p, i) => checkPredicate(p, `postconditions[${i}]`, errors));
+  return { valid: errors.length === 0, errors, steps: counter.n };
 }
 
 async function terminal(ctx: ActionContext, preds: Predicate[], env: RunEnv): Promise<Tri> {

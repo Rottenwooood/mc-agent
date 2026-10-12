@@ -18,6 +18,14 @@ export type Filter =
   | string
   | { tag?: string; block?: string; anyOf?: readonly string[] };
 
+/** Entity-domain filter for the `entities` set op (mod entities included — matched by type id). */
+export interface EntityFilter {
+  /** Entity type id, e.g. minecraft:cow or modid:my_entity. */
+  type?: string;
+  hostile?: boolean;
+  within?: number;
+}
+
 export type SetExpr =
   | { op: 'set_difference'; a: SetExpr; b: SetExpr }
   | { op: 'component'; seed: Arg; match: Filter; neighbor?: unknown; bounded?: Box }
@@ -31,7 +39,15 @@ export type SetExpr =
   /** Cells of the nearest visible object matching a filter. */
   | { op: 'nearest'; match: Filter }
   /** A box relative to a visible anchor (handle or 'self'), the primary way to build. */
-  | { op: 'area'; anchor: Arg; size: [number, number, number]; offset?: [number, number, number] };
+  | { op: 'area'; anchor: Arg; size: [number, number, number]; offset?: [number, number, number] }
+  // ---- non-block domains (the same state model the atoms read/write) ----
+  // Elements are typed records, not cells: project a field with {from:'s', field:'item'}.
+  /** Every inventory slot as {slot, item, count}. */
+  | { op: 'inventory' }
+  /** Every slot of a container block (handle/pos) as {slot, item, count}. */
+  | { op: 'container'; handle: Arg }
+  /** Visible entities as {id, type, pos, hostile, distance}. */
+  | { op: 'entities'; match?: EntityFilter };
 
 export interface ActionStep {
   action: string;

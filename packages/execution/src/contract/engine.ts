@@ -128,7 +128,9 @@ async function defaultScope(ctx: ActionContext): Promise<EffectScope> {
   const self = await ctx.world.selfPos();
   const c: Vec3 = self ?? [0, 0, 0];
   const box = { min: [c[0] - 2, c[1] - 2, c[2] - 2] as Vec3, max: [c[0] + 2, c[1] + 2, c[2] + 2] as Vec3 };
-  return self ? { box, anchor: self } : { box };
+  // NO anchor: an unresolved target must not degrade to a self-anchor (that caused the vacuous
+  // "air == air" pass). A verify without an anchor returns `unobservable`, never `pass`.
+  return { box };
 }
 
 export async function executeAction(

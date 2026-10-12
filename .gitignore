@@ -14,3 +14,6 @@ logs/
 *.log
 # OS
 .DS_Store
+
+# Agent runtime state (seeded from scenarios/)
+.mc-agent/

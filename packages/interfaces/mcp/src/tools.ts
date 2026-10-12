@@ -4,9 +4,9 @@
 
 import type { Predicate, Step, SecondaryActionDefinitionInput } from '@mc-agent/contracts';
 import { mk, ALL_ACTIONS, actionRegistry, executeAction } from '@mc-agent/execution';
-import { runMethod, tryAction } from '@mc-agent/tasks';
+import { runMethod, tryAction, validateMethod } from '@mc-agent/tasks';
 import type { ActionLibrary, SkillLibrary } from '@mc-agent/knowledge';
-import type { ToolDef } from './tool.js';
+import type { ToolDef, ToolContext } from './tool.js';
 
 const compositionRegistry = actionRegistry();
 
@@ -29,11 +29,11 @@ const RESERVED_TOOL_NAMES = new Set<string>([
 const SET_SCHEMA = {
   type: 'object',
   description:
-    'A set expression (recomputed fresh against the world). One of: {op:"members",handle} (all cells of an object — use this to mine a vein/tree), {op:"surface",handle}, {op:"nearest",match} (block/tag), {op:"area",anchor,size,offset?}, {op:"box_cells",box}, {op:"component",seed,match}, {op:"region",box,filter?}, {op:"set_difference",a,b}.',
+    'A set expression (recomputed fresh against the world). Block/cell domains: {op:"members",handle} (all cells of an object — mine a vein/tree), {op:"surface",handle}, {op:"nearest",match} (block/tag), {op:"area",anchor,size,offset?}, {op:"box_cells",box}, {op:"component",seed,match}, {op:"region",box,filter?}, {op:"set_difference",a,b}. Non-block domains (elements are records, project a field with {"from":"s","field":"count"}): {op:"inventory"} -> {slot,item,count}; {op:"container",handle} -> {slot,item,count}; {op:"entities",match:{type,hostile,within}} -> {id,type,pos,hostile,distance}.',
   properties: {
-    op: { enum: ['members', 'surface', 'nearest', 'area', 'component', 'region', 'box_cells', 'set_difference'] },
-    handle: { type: 'string', description: 'obj:... handle (members/surface)' },
-    match: { description: 'block id, or {block}|{tag}|{anyOf} (nearest/component)' },
+    op: { enum: ['members', 'surface', 'nearest', 'area', 'component', 'region', 'box_cells', 'set_difference', 'inventory', 'container', 'entities'] },
+    handle: { type: 'string', description: 'obj:... handle (members/surface/container)' },
+    match: { description: 'block: a block id, or {block}|{tag}|{anyOf} (nearest/component). entities: {type,hostile,within}.' },
     anchor: { description: "obj:... handle or 'self' (area)" },
     size: { type: 'array', items: { type: 'integer' }, description: '[dx,dy,dz] (area)' },
     offset: { type: 'array', items: { type: 'integer' }, description: '[dx,dy,dz] (area)' },
@@ -45,10 +45,10 @@ const SET_SCHEMA = {
 const STEP_SCHEMA = {
   type: 'object',
   description:
-    'A step: an ACTION step {action:"<tool>", args:{...}} OR a CONTROL step {op:"sequence"|"for_each"|"repeat"|"branch", ...}. For for_each: {op:"for_each", set:<SetExpr>, as:"c", body:[Step...]}; reference the loop var inside args with {"from":"c"}.',
+    'A step: an ACTION step {action:"<tool>", args:{...}} OR a CONTROL step {op:"sequence"|"for_each"|"repeat"|"branch", ...}. For for_each: {op:"for_each", set:<SetExpr>, as:"c", body:[Step...]}; reference the loop var inside args with {"from":"c"} — and one field of an element with {"from":"c","field":"count"} (cells: field x|y|z).',
   properties: {
     action: { type: 'string', description: 'Action/tool name, e.g. set_block, go_to, craft, collect.' },
-    args: { type: 'object', description: 'Args for the action. Use {"from":"c"} to reference the for_each variable.' },
+    args: { type: 'object', description: 'Args for the action. {"from":"c"} references the for_each var; {"from":"c","field":"item"} projects a field.' },
     save: { type: 'string' },
     op: { enum: ['sequence', 'for_each', 'repeat', 'branch'] },
     steps: { type: 'array', items: { type: 'object' }, description: 'sequence: child steps' },
@@ -77,8 +77,14 @@ const RUN_METHOD_DESCRIPTION = [
   '  { "op":"nearest", "match":"minecraft:stone" }   nearest object matching a block/tag',
   '  { "op":"area", "anchor":"obj:...|self", "size":[dx,dy,dz], "offset":[dx,dy,dz] }',
   '  { "op":"box_cells", "box":{"min":[x,y,z],"max":[x,y,z]} }',
+  '  NON-BLOCK domains (elements are records; project a field with {"from":"s","field":"count"}):',
+  '  { "op":"inventory" }                        every inventory slot -> {slot,item,count}',
+  '  { "op":"container", "handle":"obj:..." }    every slot of a container -> {slot,item,count}',
+  '  { "op":"entities", "match":{"type":"...","hostile":true,"within":32} }   -> {id,type,pos,hostile,distance}',
   '',
   'postconditions (terminal, authoritative): subject `block@x,y,z` (is/!=), `inv:<item>` (>=/>/is/...), `self.hp|food`, `entity#<id>`, `obj:<handle>` (gone/present/size_ge/size_is).',
+  '',
+  'validate:true -> only STRUCTURALLY validate (no execution): known action names, set ops + their required fields, control-step shape, and predicates. Use it to check a method before running it.',
   '',
   'EXAMPLE 1 — mine a whole object, then collect the drops:',
   '{"steps":[',
@@ -89,41 +95,69 @@ const RUN_METHOD_DESCRIPTION = [
   'EXAMPLE 2 — same, with a terminal postcondition:',
   '{"steps":[{"op":"for_each","set":{"op":"members","handle":"obj:..."},"as":"c","body":[{"action":"set_block","args":{"target":{"kind":"cell","pos":{"from":"c"}},"block":"minecraft:air","navigate":true,"allowModify":true,"breakThrough":true}}]}],',
   ' "postconditions":[{"subject":"inv:minecraft:coal","predicate":">=","value":1}]}',
+  '',
+  'EXAMPLE 3 — drop every inventory stack (a SERIES over the inventory domain; no new tool):',
+  '{"steps":[{"op":"for_each","set":{"op":"inventory"},"as":"s","body":[',
+  '  {"action":"drop","args":{"item":{"from":"s","field":"item"},"count":{"from":"s","field":"count"}}}]}]}',
 ].join('\n');
 
-const runMethodTool: ToolDef = {
-  name: 'run_method',
-  title: 'run_method',
-  description: RUN_METHOD_DESCRIPTION,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      name: { type: 'string' },
-      steps: { type: 'array', items: STEP_SCHEMA, description: 'Step[]: action steps {action,args?} and control steps {op,...}' },
-      postconditions: { type: 'array', items: { type: 'object' }, description: 'Predicate[] terminal postcondition' },
-      args: { type: 'object', description: 'Initial variable bindings' },
-      budget: { type: 'integer', default: 4096 },
-      budgetMs: { type: 'integer', default: 90000, description: 'Wall-clock ceiling; the run returns a verdict when exceeded' },
+function makeRunMethodTool(library?: ActionLibrary): ToolDef {
+  return {
+    name: 'run_method',
+    title: 'run_method',
+    description: RUN_METHOD_DESCRIPTION,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        steps: { type: 'array', items: STEP_SCHEMA, description: 'Step[]: action steps {action,args?} and control steps {op,...}' },
+        postconditions: { type: 'array', items: { type: 'object' }, description: 'Predicate[] terminal postcondition' },
+        args: { type: 'object', description: 'Initial variable bindings' },
+        budget: { type: 'integer', default: 4096 },
+        budgetMs: { type: 'integer', default: 90000, description: 'Wall-clock ceiling; the run returns a verdict when exceeded' },
+        validate: { type: 'boolean', default: false, description: 'If true, only STRUCTURALLY validate steps/sets/predicates and RETURN without executing.' },
+      },
+      required: ['steps'],
+      additionalProperties: false,
     },
-    required: ['steps'],
-    additionalProperties: false,
-  },
-  handler: (ctx, args) =>
-    runMethod(
-      ctx,
-      compositionRegistry,
-      {
+    handler: async (ctx, args) => {
+      const method = {
         steps: args.steps as Step[],
         ...(args.postconditions ? { postconditions: args.postconditions as Predicate[] } : {}),
         ...(args.name ? { name: String(args.name) } : {}),
-      },
-      {
-        ...(args.args ? { args: args.args as Record<string, unknown> } : {}),
-        ...(args.budget ? { budget: Number(args.budget) } : {}),
-        ...(args.budgetMs ? { budgetMs: Number(args.budgetMs) } : {}),
-      },
-    ),
-};
+      };
+      if (args.validate === true) {
+        const v = validateMethod(method, {
+          actions: compositionRegistry,
+          ...(library ? { isSecondary: (n: string) => !!library.active(n) } : {}),
+        });
+        return mk({
+          effectStatus: v.valid ? 'pass' : 'fail',
+          reason: v.valid ? null : 'precondition_failed',
+          reasonDetail: v.valid
+            ? `valid method (${v.steps} step${v.steps === 1 ? '' : 's'})`
+            : v.errors.map((e) => `${e.path}: ${e.message}`).join('; '),
+          data: v,
+          evidence: [{ claim: 'method_validation', source: 'observed' }],
+        });
+      }
+      return runMethod(
+        ctx,
+        compositionRegistry,
+        method,
+        {
+          ...(args.args ? { args: args.args as Record<string, unknown> } : {}),
+          ...(args.budget ? { budget: Number(args.budget) } : {}),
+          ...(args.budgetMs ? { budgetMs: Number(args.budgetMs) } : {}),
+          // A step may call an ACTIVE secondary action (hierarchical composition) when a library exists.
+          ...(library
+            ? { callSecondary: (c: ToolContext, acts: typeof compositionRegistry, nm: string, a: Record<string, unknown>, d: number) => tryAction(c, acts, library, nm, { args: a, depth: d }) }
+            : {}),
+        },
+      );
+    },
+  };
+}
 
 function secondaryActionTools(library: ActionLibrary): ToolDef[] {
   const defineAction: ToolDef = {
@@ -350,7 +384,7 @@ export function buildTools(opts: BuildToolsOptions = {}): ToolDef[] {
     inputSchema: a.contract.params as Record<string, unknown>,
     handler: (ctx, args) => executeAction(ctx, a, args),
   }));
-  tools.push(runMethodTool);
+  tools.push(makeRunMethodTool(opts.actionLibrary));
   if (opts.actionLibrary) tools.push(...secondaryActionTools(opts.actionLibrary));
   if (opts.skillLibrary) tools.push(...skillTools(opts.skillLibrary));
   return tools;

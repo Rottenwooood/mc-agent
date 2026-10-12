@@ -178,14 +178,14 @@ const setBlock: AtomicAction = {
       anchor: pos,
     };
   },
-  async verify(ctx, args, win) {
-    // Judge the INTENDED cell (re-resolved), never a degraded default anchor (which caused the
-    // vacuous "air == air" pass). Already at the wanted value → `no_op`, not `pass`.
-    const rt = await resolveTarget(ctx, args.target as Target);
-    if (!rt.ok || !rt.value.pos) {
+  async verify(_ctx, args, win) {
+    // Judge the cell the ACTION resolved (the scope anchor). Never re-resolve `{kind:"block"}`
+    // here — after the change the nearest block is a DIFFERENT cell — and never judge a degraded
+    // default anchor (that caused the vacuous "air == air" pass).
+    const pos = win.anchor;
+    if (!pos) {
       return { ok: 'unobservable', evidence: [{ claim: 'block_at_target', source: 'authoritative', value: null }] };
     }
-    const pos = rt.value.pos;
     const want = String(args.block);
     const before = win.before.blocks.get(key(pos)) ?? AIR;
     const after = win.after.blocks.get(key(pos)) ?? AIR;

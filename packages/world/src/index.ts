@@ -89,16 +89,24 @@ export class World {
   async findNearestBlock(block: string, radius: number, around?: Vec3): Promise<MaybeFact<BlockHit | null>> {
     const center = around ?? (await this.selfPos());
     if (!center) return unknown('no self position');
-    const box = {
-      min: [center[0] - radius, center[1] - radius, center[2] - radius] as Vec3,
-      max: [center[0] + radius, center[1] + radius, center[2] + radius] as Vec3,
-    };
-    const r = await this.port.query(box, { blockIds: [block] });
-    if (isUnknown(r)) return r;
-    if (r.coverage.truncated) return unknown('region truncated; nearest not reliable');
-    const cells: BlockCell[] = r.value.filter((c) => c.block === block);
-    const best = nearestCell(cells, center);
-    return { value: best, source: 'authoritative', observedTick: r.observedTick, coverage: r.coverage };
+    // Only EXPOSED cells matter (you can act only on what is exposed), and a truncated box makes
+    // "nearest" unreliable — so shrink the box until the server-side query is not truncated.
+    let truncated = false;
+    for (let r = Math.max(4, Math.floor(radius)); r >= 4; r = Math.floor(r / 2)) {
+      const box = {
+        min: [center[0] - r, center[1] - r, center[2] - r] as Vec3,
+        max: [center[0] + r, center[1] + r, center[2] + r] as Vec3,
+      };
+      const res = await this.port.query(box, { blockIds: [block], exposedOnly: true });
+      if (isUnknown(res)) return res;
+      if (res.coverage.truncated) {
+        truncated = true;
+        continue;
+      }
+      const best = nearestCell(res.value.filter((c) => c.block === block), center);
+      return { value: best, source: 'authoritative', observedTick: res.observedTick, coverage: res.coverage };
+    }
+    return unknown(truncated ? 'region truncated even after shrinking; nearest not reliable' : 'not found');
   }
 
   /** Exposed faces (surface shell elements) of the non-air cells inside `box`. */

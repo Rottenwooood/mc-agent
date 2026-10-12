@@ -76,7 +76,7 @@ export interface WorldPort {
   status(): Promise<MaybeFact<SelfState>>;
   entities(opts?: { radius?: number }): Promise<MaybeFact<EntityFact[]>>;
   inventory(): Promise<MaybeFact<ItemStack[]>>;
-  query(box: Box, opts?: { blockIds?: string[]; maxItems?: number }): Promise<MaybeFact<BlockCell[]>>;
+  query(box: Box, opts?: { blockIds?: string[]; maxItems?: number; exposedOnly?: boolean }): Promise<MaybeFact<BlockCell[]>>;
   events(cursor?: EventCursor, max?: number): Promise<EventPage>;
   /** Official tag tables (server-authoritative). Bound at server start; safe to cache. */
   tags(): Promise<MaybeFact<TagTable>>;
