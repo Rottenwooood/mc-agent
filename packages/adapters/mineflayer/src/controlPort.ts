@@ -7,7 +7,7 @@ import mineflayer from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import mcDataFactory from 'minecraft-data';
 import vec3 from 'vec3';
-import type { AttackOptions, BodyState, ControlPort, ControlReceipt, ItemStack, MoveOptions, Vec3 } from '@mc-agent/contracts';
+import type { AttackOptions, BodyState, ConnectOptions, ControlPort, ControlReceipt, ItemStack, MoveOptions, Vec3 } from '@mc-agent/contracts';
 import { PortError } from '@mc-agent/foundation';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,29 +41,47 @@ function short(item: string): string {
 
 export class MineflayerControlPort implements ControlPort {
   private bot: any = null;
+  /** Effective join target; overridden by a `join_server` argument and reused for later joins. */
+  private opts: MineflayerOptions;
 
-  constructor(private readonly opts: MineflayerOptions = {}) {}
+  constructor(opts: MineflayerOptions = {}) {
+    this.opts = { ...opts };
+  }
 
   get ready(): boolean {
     return this.bot !== null && this.bot.entity != null;
   }
 
-  async bodyState(): Promise<BodyState> {
+  private endpoint(o: MineflayerOptions = this.opts): { host: string; port: number; username: string; version: string } {
     return {
-      connected: this.ready,
-      controllable: true,
-      server: `${this.opts.host ?? process.env.MC_HOST ?? '127.0.0.1'}:${this.opts.port ?? Number(process.env.MC_PORT ?? 25565)}`,
-      username: this.opts.username ?? process.env.MC_USER ?? 'Bot',
+      host: o.host ?? process.env.MC_HOST ?? '127.0.0.1',
+      port: o.port ?? Number(process.env.MC_PORT ?? 25565),
+      username: o.username ?? process.env.MC_USER ?? 'Bot',
+      version: o.version ?? process.env.MC_VERSION ?? '1.20.1',
     };
   }
 
-  async connect(): Promise<void> {
+  async bodyState(): Promise<BodyState> {
+    const e = this.endpoint();
+    return { connected: this.ready, controllable: true, server: `${e.host}:${e.port}`, username: e.username };
+  }
+
+  async connect(opts: ConnectOptions = {}): Promise<void> {
     if (this.bot) return;
+    // Build the candidate target; only DEFINED keys override, so a partial join arg keeps the
+    // configured/env defaults. It is committed to `this.opts` only AFTER a successful connect — a
+    // failed join must not leave the body pointed at a dead target.
+    const merged: MineflayerOptions = { ...this.opts };
+    if (opts.host !== undefined) merged.host = opts.host;
+    if (opts.port !== undefined) merged.port = opts.port;
+    if (opts.username !== undefined) merged.username = opts.username;
+    if (opts.version !== undefined) merged.version = opts.version;
+    const e = this.endpoint(merged);
     const bot = mineflayer.createBot({
-      host: this.opts.host ?? process.env.MC_HOST ?? '127.0.0.1',
-      port: this.opts.port ?? Number(process.env.MC_PORT ?? 25565),
-      username: this.opts.username ?? process.env.MC_USER ?? 'Bot',
-      version: this.opts.version ?? process.env.MC_VERSION ?? '1.20.1',
+      host: e.host,
+      port: e.port,
+      username: e.username,
+      version: e.version,
       auth: 'offline',
       disableChatSigning: true,
     } as mineflayer.BotOptions);
@@ -78,6 +96,7 @@ export class MineflayerControlPort implements ControlPort {
     bot.loadPlugin(pathfinder);
     this.setMovements(bot, false);
     this.bot = bot;
+    this.opts = merged; // commit the target only after a successful connect
   }
 
   private setMovements(bot: any, allowModify: boolean): void {

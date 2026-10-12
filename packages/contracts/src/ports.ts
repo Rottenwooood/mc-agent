@@ -111,8 +111,16 @@ export interface BodyState {
   username?: string;
 }
 
+/** Where/how to join — overrides the backend's configured/env values for a join. */
+export interface ConnectOptions {
+  host?: string;
+  port?: number;
+  username?: string;
+  version?: string;
+}
+
 export interface ControlPort {
-  connect(): Promise<void>;
+  connect(opts?: ConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
   /** Body lifecycle state + join/leave capability (cheap probe). */
   bodyState(): Promise<BodyState>;

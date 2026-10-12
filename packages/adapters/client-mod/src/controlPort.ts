@@ -7,6 +7,7 @@
 import type {
   AttackOptions,
   BodyState,
+  ConnectOptions,
   ControlPort,
   ControlReceipt,
   ItemStack,
@@ -51,7 +52,8 @@ export class ClientModControlPort implements ControlPort {
 
   // ---- lifecycle ----
 
-  async connect(): Promise<void> {
+  async connect(_opts: ConnectOptions = {}): Promise<void> {
+    // A real client is already in the world (or not) by the human's choice; we only wait for it.
     const deadline = Date.now() + 60000;
     let last = '';
     while (Date.now() < deadline) {

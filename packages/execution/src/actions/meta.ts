@@ -1,6 +1,6 @@
 // Meta atomic actions (chat / commands).
 
-import type { ActionResult } from '@mc-agent/contracts';
+import type { ActionResult, ConnectOptions } from '@mc-agent/contracts';
 import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
@@ -39,19 +39,38 @@ const joinServer: AtomicAction = {
   contract: contract({
     name: 'join_server',
     description:
-      'Join (or rejoin) the game server as the body — use after a disconnect, a kick or a server restart (the body does not auto-reconnect). Control action: it does not claim a world effect. (No-op if already connected; unsupported on a backend that does not control join/leave.)',
-    params: { type: 'object', properties: {}, additionalProperties: false },
+      'Join (or rejoin) a game server as the body — use after a disconnect, a kick or a server restart (the body does not auto-reconnect), or to switch server/identity. Pass server/username/version to override the configured target; omit them to rejoin the configured server (no-op if already there). Control action: no world effect claimed.',
+    params: {
+      type: 'object',
+      properties: {
+        server: { type: 'string', description: 'host[:port], e.g. 127.0.0.1:25565 (default: the configured server)' },
+        username: { type: 'string', description: 'bot/player name (default: the configured user)' },
+        version: { type: 'string', description: 'protocol version, e.g. 1.20.1 (default: configured)' },
+      },
+      additionalProperties: false,
+    },
     effectClass: 'idempotent',
     controlOnly: true,
   }),
-  async run(ctx): Promise<ActionResult> {
+  async run(ctx, args): Promise<ActionResult> {
     const st = await ctx.ctrl.bodyState();
     if (!st.controllable) {
       return fail('precondition_failed', { reasonDetail: 'this control backend does not control join/leave (a real client is joined by the human)' });
     }
-    if (st.connected) return mk({ effectStatus: 'no_op', reason: null, reasonDetail: 'already connected' });
+    const opts: ConnectOptions = {};
+    if (typeof args.server === 'string' && args.server) {
+      const [host, port] = args.server.split(':');
+      if (host) opts.host = host;
+      if (port && Number.isFinite(Number(port))) opts.port = Number(port);
+    }
+    if (typeof args.username === 'string' && args.username) opts.username = args.username;
+    if (typeof args.version === 'string' && args.version) opts.version = args.version;
+    // Any explicit target/identity means "(re)join THIS" — not the idempotent no-op path.
+    const switching = Object.keys(opts).length > 0;
+    if (st.connected && !switching) return mk({ effectStatus: 'no_op', reason: null, reasonDetail: 'already connected' });
     try {
-      await ctx.ctrl.connect();
+      if (st.connected) await ctx.ctrl.disconnect(); // switching target/identity requires leaving first
+      await ctx.ctrl.connect(opts);
       const after = await ctx.ctrl.bodyState();
       return pass({ evidence: [{ claim: 'body_connected', source: 'observed', value: after }], data: after });
     } catch (e) {
