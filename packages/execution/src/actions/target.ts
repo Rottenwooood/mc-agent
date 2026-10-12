@@ -137,8 +137,16 @@ export async function resolveTarget(ctx: ActionContext, t: Target): Promise<Reso
     }
     case 'block': {
       const r = await ctx.world.findNearestBlock(t.block, t.within ?? 48, t.around);
-      if (isUnknown(r)) return { ok: false, reason: 'not observed' };
-      if (!r.value) return { ok: false, reason: 'not_found' };
+      if (isUnknown(r)) return { ok: false, reason: 'not observed', acceptedShapes: TARGET_SHAPES, received: t };
+      if (!r.value) return { ok: false, reason: 'not_found', acceptedShapes: TARGET_SHAPES, received: t };
+      // Re-validate at use: the "nearest block" sample can be stale/expired — confirm the cell
+      // still holds the block, else refuse (never mine an air cell from an old sample).
+      const want = t.block.includes(':') ? t.block : 'minecraft:' + t.block;
+      const check = await ctx.world.blockAt(r.value.pos);
+      if (isUnknown(check)) return { ok: false, reason: 'not observed', acceptedShapes: TARGET_SHAPES, received: t };
+      if (check.value !== want) {
+        return { ok: false, reason: `stale target: ${r.value.pos.join(',')} is ${check.value}, not ${want} (rescan)`, acceptedShapes: TARGET_SHAPES, received: t };
+      }
       return { ok: true, value: { pos: r.value.pos } };
     }
     case 'entity': {

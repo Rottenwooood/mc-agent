@@ -17,6 +17,7 @@ export interface Signature {
   inventory: Record<string, number>;
   hp: number | null;
   food: number | null;
+  pos: Vec3 | null;
 }
 
 export interface SignatureDiff {
@@ -59,6 +60,7 @@ export async function captureSignature(ctx: ActionContext, scope: EffectScope): 
     inventory,
     hp: isUnknown(st) ? null : st.value.health,
     food: isUnknown(st) ? null : st.value.food,
+    pos: isUnknown(st) ? null : st.value.pos,
   };
 }
 

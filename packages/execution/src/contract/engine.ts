@@ -4,13 +4,38 @@
 // Crucially it reconciles the common "the tool reported a timeout/interrupt, but the effect did
 // happen" case: an effect that is present in the authoritative after-signature is accepted.
 
-import type { ActionResult, NeighborhoodDiff, Vec3 } from '@mc-agent/contracts';
+import type { ActionResult, EventCursor, NeighborhoodDiff, Vec3, WorldEvent } from '@mc-agent/contracts';
 import { guardedRun } from '../guard.js';
 import type { ActionContext, AtomicAction } from '../actions/types.js';
 import { captureSignature, diffSignatures, type EffectScope, type SignatureDiff, type VerifyOutcome } from './signature.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SETTLE_MS = 500;
+
+// Time-ordered world-change feed: one cursor for the resident (a single agent). After each body
+// action we read the events since the previous action, so no side effect is silent.
+let changeCursor: EventCursor | undefined;
+
+function formatEvent(e: WorldEvent): string {
+  const who = e.actor ?? '?';
+  const at = e.pos ? ` at ${e.pos.join(',')}` : '';
+  if (e.after === 'minecraft:air' && e.before) return `${who} ${e.before} is broken${at}`;
+  if ((!e.before || e.before === 'minecraft:air') && e.after) return `${who} ${e.after} is placed${at}`;
+  if (e.before && e.after) return `${who} ${e.before} is changed to ${e.after}${at}`;
+  return `${who} ${e.type}${at}`;
+}
+
+async function collectChanges(ctx: ActionContext): Promise<string[]> {
+  try {
+    const page = await ctx.world.events(changeCursor, 256);
+    const out: string[] = [];
+    if (!page.resetRequired) for (const e of page.events) out.push(formatEvent(e));
+    changeCursor = page.cursor;
+    return out;
+  } catch {
+    return [];
+  }
+}
 
 function toNeighborhoodDiff(d: SignatureDiff): NeighborhoodDiff {
   const nd: NeighborhoodDiff = { changed: d.changed };
@@ -76,9 +101,19 @@ export async function executeAction(
   const after = await captureSignature(ctx, scope);
   const diff = diffSignatures(before, after);
 
+  let final: ActionResult;
   if (action.verify) {
     const v = await action.verify(ctx, args, { before, after, diff, ...(scope.anchor ? { anchor: scope.anchor } : {}) });
-    if (v) return reconcile(result, v, diff);
+    final = v ? reconcile(result, v, diff) : { ...result, diff: toNeighborhoodDiff(diff) };
+  } else {
+    final = { ...result, diff: toNeighborhoodDiff(diff) };
   }
-  return { ...result, diff: toNeighborhoodDiff(diff) };
+
+  // Time-ordered world-change feed (no silent side effects): events + inventory delta + a move line.
+  const changes = await collectChanges(ctx);
+  for (const [item, d] of Object.entries(diff.inventoryDelta)) changes.push(`A ${item} ${d > 0 ? '+' + d : d}`);
+  if (before.pos && after.pos && (before.pos[0] !== after.pos[0] || before.pos[1] !== after.pos[1] || before.pos[2] !== after.pos[2])) {
+    changes.push(`A moved to ${after.pos.map((v) => v.toFixed(1)).join(',')}`);
+  }
+  return changes.length > 0 ? { ...final, changes } : final;
 }

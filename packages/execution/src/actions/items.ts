@@ -50,7 +50,8 @@ const collect: AtomicAction = {
     const max = Number(args.max ?? 24);
     return ctx.token.run(async () => {
       const inv0 = await ctx.world.inventory();
-      const before = isUnknown(inv0) ? [] : inv0.value;
+      if (isUnknown(inv0)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
+      const before = inv0.value;
       let visited = 0;
       let lastNote: string | undefined;
       for (let round = 0; round < max; round++) {
@@ -69,7 +70,8 @@ const collect: AtomicAction = {
         }
       }
       const inv1 = await ctx.world.inventory();
-      const after = isUnknown(inv1) ? [] : inv1.value;
+      if (isUnknown(inv1)) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
+      const after = inv1.value;
       const delta = deltaOf(before, after);
       const gained = totalOf(after) - totalOf(before);
       const evidence = [{ claim: 'inv_count', source: 'authoritative' as const, before: totalOf(before), after: totalOf(after) }];

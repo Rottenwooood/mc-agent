@@ -1,10 +1,10 @@
 // Container / production atomic actions.
 
 import type { ActionResult } from '@mc-agent/contracts';
-import { pass, fail } from '../result.js';
+import { mk, pass, fail } from '../result.js';
 import type { AtomicAction } from './types.js';
 import { contract } from './types.js';
-import { invCount } from './helpers.js';
+import { invCountOrNull } from './helpers.js';
 import { resolveTarget, resolveTargetOrFail, TARGET_SCHEMA } from './target.js';
 
 const openContainer: AtomicAction = {
@@ -50,11 +50,13 @@ const craft: AtomicAction = {
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const item = String(args.item);
-      const before = await invCount(ctx.world, item);
+      const before = await invCountOrNull(ctx.world, item);
+      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const tableRt = args.table ? await resolveTarget(ctx, args.table as never) : null;
       const tablePos = tableRt && tableRt.ok ? tableRt.value.pos : undefined;
       const r = await ctx.ctrl.craft(item, Number(args.count ?? 1), tablePos);
-      const after = await invCount(ctx.world, item);
+      const after = await invCountOrNull(ctx.world, item);
+      if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       if (r.accepted && after > before) return pass({ resources: { inventoryDelta: { [item]: after - before } }, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
       return fail('effect_not_observed', { reasonDetail: r.note, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }] });
     });
@@ -72,11 +74,13 @@ const smelt: AtomicAction = {
   async run(ctx, args): Promise<ActionResult> {
     return ctx.token.run(async () => {
       const item = String(args.item);
-      const before = await invCount(ctx.world, item);
+      const before = await invCountOrNull(ctx.world, item);
+      if (before === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       const fRt = args.furnace ? await resolveTarget(ctx, args.furnace as never) : null;
       const pos = fRt && fRt.ok ? fRt.value.pos : undefined;
       const r = await ctx.ctrl.smelt(item, Number(args.count ?? 1), { ...(args.fuel != null ? { fuel: String(args.fuel) } : {}), ...(pos ? { pos } : {}) });
-      const after = await invCount(ctx.world, item);
+      const after = await invCountOrNull(ctx.world, item);
+      if (after === null) return mk({ effectStatus: 'unobservable', reason: 'insufficient_evidence', reasonDetail: 'inventory not observed' });
       if (r.accepted && after > before) return pass({ resources: { inventoryDelta: { [item]: after - before } }, evidence: [{ claim: 'inv_count', source: 'authoritative', before, after }], attribution: 'self_temporal' });
       return fail('effect_not_observed', { reasonDetail: r.note });
     });

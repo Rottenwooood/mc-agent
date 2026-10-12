@@ -15,6 +15,7 @@ export interface ResultParts {
   resources?: ActionResult['resources'];
   timing?: ActionResult['timing'];
   data?: unknown;
+  changes?: string[];
   subResults?: ActionResult[];
 }
 
@@ -32,6 +33,7 @@ export function mk(p: ResultParts): ActionResult {
     control: 'returned',
   };
   if (p.data !== undefined) r.data = p.data;
+  if (p.changes !== undefined) r.changes = p.changes;
   if (p.reasonDetail !== undefined) r.reasonDetail = p.reasonDetail;
   if (p.subResults !== undefined) r.subResults = p.subResults;
   return r;

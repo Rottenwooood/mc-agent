@@ -92,6 +92,8 @@ export interface ActionResult {
   resources?: ResourceDelta | null;
   timing?: Timing | null;
   control: 'returned';
+  /** Time-ordered world changes caused since the previous tool call (no silent side effects). */
+  changes?: string[];
   subResults?: ActionResult[];
   /** Tool-specific payload (e.g. perception data). Not part of the judgement. */
   data?: unknown;
