@@ -17,7 +17,7 @@ mc-agent/
 ├── packages/              # 框架(后端无关):contracts / world / execution / tasks / knowledge / interfaces/mcp
 ├── apps/agent/            # 常驻进程(身体 owner)+ MCP 桥
 ├── tools/                 # server-up/down · reset-world · agent-up/down · launch-client …
-└── docs/                  # 设计 / 状态 / 指南(先读 docs/PROJECT-OVERVIEW.md)
+└── docs/                  # 设计契约与运行指南
 ```
 
 ## 环境(已配置)
@@ -57,11 +57,11 @@ tools/server-down.sh   # 停 server(优雅退出,会存档)
 
 ## 文档
 
-- `docs/PROJECT-OVERVIEW.md` — 项目总览(逐模块 + 逐公开 API)。
-- `docs/IMPLEMENTATION-STATUS.md` — 实现状态与门禁。
+- `docs/mcp-implementation-framework.md` — 实现框架:铁律、契约、动作库、进程形态与累计决策。
+- `docs/world-map-and-composition.md` — 感知/地图/编排:表面壳、发现图、句柄与罗盘、有界编排词表。
+- `docs/client-controller.md` — 真实客户端控制后端(只替换 `ControlPort`)。
 - `docs/running-the-agent.md` — **跑 agent 的三种方式**(自定义 prompt / 一键 benchmark / 交互 session)。
 - `docs/manual-test-mineflayer.md` — 手动测试指南(起 server → 重置世界 → 起 agent → 场景 → OP → 清理)。
-- `docs/client-controller.md` / `docs/client-controller-review.md` — 真实客户端控制后端。
 
 ## 观测 Mod 的 HTTP 接口(只读,`127.0.0.1:8765`)
 

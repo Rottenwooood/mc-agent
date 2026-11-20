@@ -1,6 +1,6 @@
 # 世界感知、地图与动作编排(详细设计)
 
-> 配套 `mcp-implementation-framework.md §5/§6/§7`。状态:设计,待实现。日期:2026-10-08。
+> 配套 `mcp-implementation-framework.md §5/§6/§7`。状态:**已实现**(表面壳、发现图、对象句柄与罗盘、有界编排词表均在 `packages/`)。日期:2026-10-08。
 
 ---
 

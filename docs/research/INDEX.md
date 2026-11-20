@@ -48,8 +48,8 @@
 
 `sources/*-abstract.txt`(arXiv API 摘要)、`sources/apis/`(Mineflayer / Fabric / Voyager 等官方 API 与用法原文)。
 
-> 顶层设计文档(`../minecraft-framework.md`、`../minecraft-layering.md`、`../gemini.md`)
-> 已一并纳入本仓库,位于 `../`。
+> 早期顶层设计稿(`../minecraft-framework.md`、`../minecraft-layering.md`、`../gemini.md`)
+> 已从仓库删除,现存设计契约见 `../mcp-implementation-framework.md` 与 `../world-map-and-composition.md`。
 
 ## 纪律
 

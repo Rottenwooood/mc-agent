@@ -1,5 +1,5 @@
 // Item-drop collection. Breaking a block and obtaining its drop are DIFFERENT results
-// (docs/minecraft-framework.md §; the eval T1 gate checks both). The body breaks blocks
+// (independent evidence: the eval T1 gate checks both). The body breaks blocks
 // (`set_block`/`dig`); `collect` walks the body onto the nearby item entities so the drops
 // enter the inventory, then verifies the authoritative inventory delta.
 //

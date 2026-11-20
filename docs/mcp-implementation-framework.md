@@ -1,7 +1,8 @@
 # Minecraft MCP 实现框架(最终形态)
 
-> **依据优先级(高→低)**:`docs/research/07/15/13/11/14/04/06/02/16/17` → `minecraft-framework.md`(旧) → `minecraft-layering.md`(旧,包结构沿用)。
-> 详细设计:`docs/world-map-and-composition.md`(感知/地图/编排)、`docs/eval-benchmark.md`(评测)。状态:**冻结,待实现**。日期:2026-10-08。**累计已定决策见 §15。**
+> **依据**:`docs/research/07/15/13/11/14/04/06/02/16/17`。
+> 详细设计:`docs/world-map-and-composition.md`(感知/地图/编排)。
+> 状态:**已实现**(M0–M4 通过 gate,S1 实机通过);本文记录契约与累计决策,见 §15。日期:2026-10-08。
 
 ---
 
@@ -97,7 +98,7 @@ L0 具身适配(`adapters/*`+`world`) / L1 Reflex-Shield(`execution/reflex`) / L
 - **定位**:底料 + 编排 + 验证/晋升;**高层动作由 agent 造**(二级动作);skill 是沉淀下来的方法论文本。
 
 ## 8. L5 Meta / Eval
-课程(能力边缘)+ 技能晋升/退役 + 实机 benchmark 与评测(见 `docs/eval-benchmark.md`:agent 驱动 MCP、种子隔离、世界重置、独立外部验收器、消融链)。
+课程(能力边缘)+ 技能晋升/退役 + 实机 benchmark 与评测(agent 驱动 MCP、种子隔离、世界重置、独立外部验收器、消融链;装置在 `tests/eval/` 与 `tools/bench.sh`)。
 
 ## 9. interfaces/mcp
 - **agent 面 = 两个主感知工具(`view` / `scan_blocks`)+ 有界 runner(`run_method`)+ 二级动作工具(`define_action`/`list_actions`/`try_action`/`activate_action`/`rollback_action`/`retire_action`)+ skill 文本工具(`write_skill`/`list_skills`/`read_skill`)+ 持续动作**;结果自解释;坐标不引导。详见 §12 与 §7。
@@ -111,7 +112,7 @@ MC 1.20.1 · Loader 0.19.5 · Fabric API 0.92.12+1.20.1 · Loom 1.18.2 · Gradle
 
 ## 12. 测试与评测
 - **工具 smoke/dry-run(非 LLM)**:只证工具连通/参数/结构,**不得当完成**。
-- **实机 benchmark(agent 驱动 MCP,禁止写死脚本)**:见 `eval-benchmark.md`。
+- **实机 benchmark(agent 驱动 MCP,禁止写死脚本)**:见 `tests/eval/` 与 `tools/bench.sh`。
 - `tests/{semantics,replay,integration}`。
 
 ## 13. 可视化

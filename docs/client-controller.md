@@ -4,8 +4,7 @@
 > 而**不是** headless mineflayer bot、也不是自研渲染器。
 > 手段:**只替换 `ControlPort` 后端**;原子动作(一级)/ L1 reflex / L3 契约引擎 /
 > `run_method` / 二级动作 / skill / 感知 **全部不变**。
-> 日期:2026-10-10。
-> **现状/设计问题复盘见 `docs/client-controller-review.md`(含仍不稳的部分与待拍板项)。**
+> 日期:2026-10-10。实现见 `packages/adapters/client-mod/` 与 `mods/mcagent` 的 `client` 源集。
 
 ---
 
@@ -226,7 +225,7 @@ mods/mcagent/
 - **导航**:`allowModify`(边走边挖)已实现(加权 A* + 清身体体积),但**远距离(30+ 格)挖穿到地下目标**
   仍不稳:搜索空间大、耗时长、执行中可能遇险(岩浆/坠落——现由守卫拦下,但会中断任务)。
 - **危险检测**:目前只在 walker 里 ad hoc 判(岩浆/火/岩浆块/仙人掌/营火/细雪);**没有统一的安全
-  不变量**(L1 reflex 只看敌对/弹射物/血量)。详见 `client-controller-review.md`。
+  不变量**(L1 reflex 只看敌对/弹射物/血量)。见 §8 其余边界条目。
 - **证据分级**:`progress.blocksBroken` 是**客户端自报**,动作层目前把它当权威证据用——**这是错的**,
   应标 `observed`,或由服务端 observer 事件确认后才升 `authoritative`。
 - **对象→格**:`resolveObject` 取"最近暴露格"是启发式;对矿脉/树"挖哪些格、按什么顺序"应交给组合
