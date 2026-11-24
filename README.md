@@ -1,5 +1,5 @@
 # mc-agent
-
+[这玩意现在全是BUG，正在准备重构出一个合格的版本]
 **An embodied Minecraft agent whose every action is judged on server-authoritative evidence.**
 
 A real LLM drives a player-legal body over MCP. A server-side read-only Fabric mod supplies
