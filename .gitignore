@@ -17,3 +17,22 @@ logs/
 
 # Agent runtime state (seeded from scenarios/)
 .mc-agent/
+
+# ---------------------------------------------------------------------------
+# Local-only material, intentionally NOT part of the public tree.
+# The files are kept on disk; this only stops them from being re-added.
+# ---------------------------------------------------------------------------
+# Research corpus (paper abstracts, third-party API docs, reading notes)
+docs/research/
+# Internal process records (stage constraints / close-out notes)
+constraints/
+stages/
+# Legacy CommonJS prototype (superseded by apps/agent + packages/*)
+agent/
+# Single-file exporter used for private review bundles
+tools/export-codebase.mjs
+# Local dumps
+.cache-papers/
+grasp/
+gw.txt
+exports/

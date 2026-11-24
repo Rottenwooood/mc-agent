@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Source to set up the Fabric toolchain for this project:
-#   source /home/c6h4o2/dev/mc-agent/env.sh
+#   source ./env.sh
 # Gradle + Loom 1.18.2 require a JDK >= 25 to RUN; the mod compiles to Java 17 bytecode.
 MCAGENT_JDK25="${MCAGENT_JDK25:-$HOME/.local/share/jdk/25}"
 MCAGENT_JDK17="${MCAGENT_JDK17:-$HOME/.local/share/jdk/17}"

@@ -7,7 +7,7 @@
 ## 0. 前置
 
 ```sh
-cd /home/c6h4o2/dev/mc-agent
+cd /path/to/mc-agent
 . ./env.sh          # 设置 JDK 25（Gradle/Loom 需要）
 ```
 
@@ -61,7 +61,7 @@ cat /tmp/opencode/resident.log         # agent-up: backend=... ; [resident] list
 换服务器 / 后端 / 名字：
 
 ```sh
-tools/agent-up.sh --server 10.0.0.5:25566 --user Bot     # 别的服务器
+tools/agent-up.sh --server 192.168.1.10:25566 --user Bot  # 别的服务器
 tools/agent-up.sh --backend client-mod --user Agent      # 真实客户端本地玩家
 tools/agent-up.sh --help                                 # 全部参数
 ```

@@ -11,6 +11,12 @@ cd "$(dirname "$0")/.."
 PROFILE="${MCAGENT_PROFILE:-$HOME/.local/share/red.ghs.axolotl/profiles/1.20.1-Fabric 0.19.5}"
 SERVER="${MCAGENT_SERVER:-127.0.0.1:25565}"
 
+if [ ! -d "$PROFILE" ]; then
+  echo "[client-up] profile not found: $PROFILE" >&2
+  echo "[client-up] set MCAGENT_PROFILE to your Fabric 1.20.1 profile directory" >&2
+  exit 2
+fi
+
 INSTALL_ONLY=0
 for a in "$@"; do
   [ "$a" = "--install-only" ] && INSTALL_ONLY=1

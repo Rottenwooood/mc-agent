@@ -1,8 +1,0 @@
-id: 1903.11199v1
-title: Control Barrier Functions: Theory and Applications
-published: 2019-03-27
-updated: 2019-03-27
-source: arXiv API via curl (verified 2026-10-05)
-
-abstract:
-This paper provides an introduction and overview of recent work on control barrier functions and their use to verify and enforce safety properties in the context of (optimization based) safety-critical controllers. We survey the main technical results and discuss applications to several domains including robotic systems.
